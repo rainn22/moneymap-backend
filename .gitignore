@@ -38,3 +38,4 @@ src/main/resources/application-dev.properties
 src/main/resources/application-production.properties
 
 .DS_Store
+postman
