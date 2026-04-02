@@ -1,4 +1,4 @@
-package com.example.moneymap.features.auth;
+package com.example.moneymap.features.auth.service;
 
 import java.io.IOException;
 

@@ -1,8 +1,8 @@
-package com.example.moneymap.features.auth;
+package com.example.moneymap.features.auth.entity;
 
 import java.time.LocalDateTime;
 
-import com.example.moneymap.features.user.User;
+import com.example.moneymap.features.user.entity.User;
 
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
@@ -40,7 +40,13 @@ public class VerificationToken {
     @Column(nullable = false)
     private LocalDateTime expiryDate;
 
+    private LocalDateTime usedAt;
+
     public boolean isExpired() {
         return expiryDate.isBefore(LocalDateTime.now());
+    }
+
+    public boolean isUsed() {
+        return usedAt != null;
     }
 }

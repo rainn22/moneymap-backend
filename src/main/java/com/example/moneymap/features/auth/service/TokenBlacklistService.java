@@ -1,4 +1,7 @@
-package com.example.moneymap.features.auth;
+package com.example.moneymap.features.auth.service;
+
+import com.example.moneymap.features.auth.entity.RevokedToken;
+import com.example.moneymap.features.auth.repository.RevokedTokenRepository;
 
 import java.time.LocalDateTime;
 import java.util.Optional;

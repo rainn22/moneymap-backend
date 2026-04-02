@@ -1,4 +1,4 @@
-package com.example.moneymap.features.auth;
+package com.example.moneymap.features.auth.service;
 
 import java.time.LocalDateTime;
 import java.util.UUID;
@@ -7,7 +7,9 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-import com.example.moneymap.features.user.User;
+import com.example.moneymap.features.auth.entity.RefreshToken;
+import com.example.moneymap.features.auth.repository.RefreshTokenRepository;
+import com.example.moneymap.features.user.entity.User;
 
 import lombok.RequiredArgsConstructor;
 

@@ -1,4 +1,6 @@
-package com.example.moneymap.features.auth;
+package com.example.moneymap.features.auth.repository;
+
+import com.example.moneymap.features.auth.entity.RevokedToken;
 
 import java.util.Optional;
 

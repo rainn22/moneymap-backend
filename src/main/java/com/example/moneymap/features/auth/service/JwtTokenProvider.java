@@ -1,9 +1,11 @@
-package com.example.moneymap.features.auth;
+package com.example.moneymap.features.auth.service;
 
 import java.util.Date;
 
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
+
+import com.example.moneymap.features.user.entity.User;
 
 import io.jsonwebtoken.Claims;
 import io.jsonwebtoken.JwtException;
@@ -20,21 +22,22 @@ public class JwtTokenProvider {
     @Value("${app.jwt.expiration}")
     private long jwtExpirationMs;
 
-    public String generateToken(String username) {
+    public String generateToken(User user) {
         Date now = new Date();
         Date expiryDate = new Date(now.getTime() + jwtExpirationMs);
         var key = Keys.hmacShaKeyFor(jwtSecret.getBytes());
 
-    // include jti for revocation/lookup
-    String jti = java.util.UUID.randomUUID().toString();
+        // include jti for revocation/lookup
+        String jti = java.util.UUID.randomUUID().toString();
 
-    return Jwts.builder()
-        .setId(jti)
-        .setSubject(username)
-        .setIssuedAt(now)
-        .setExpiration(expiryDate)
-        .signWith(key, SignatureAlgorithm.HS512)
-        .compact();
+        return Jwts.builder()
+                .setId(jti)
+                .setSubject(user.getEmail())
+                .setIssuedAt(now)
+                .setExpiration(expiryDate)
+                .claim("role", user.getRole().name())
+                .signWith(key, SignatureAlgorithm.HS512)
+                .compact();
     }
 
     public String getUsernameFromToken(String token) {

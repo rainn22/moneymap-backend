@@ -1,8 +1,8 @@
-package com.example.moneymap.features.auth;
+package com.example.moneymap.features.auth.service;
 
 import org.springframework.stereotype.Service;
 
-import com.example.moneymap.features.user.User;
+import com.example.moneymap.features.user.entity.User;
 
 import lombok.RequiredArgsConstructor;
 
@@ -13,12 +13,12 @@ public class JwtService {
     private final JwtTokenProvider jwtTokenProvider;
 
     public String generateToken(User user) {
-        return jwtTokenProvider.generateToken(user.getUsername());
+        return jwtTokenProvider.generateToken(user);
     }
 
     public boolean validateToken(String token, User user) {
         String username = jwtTokenProvider.getUsernameFromToken(token);
-        return username.equals(user.getUsername()) && jwtTokenProvider.validateToken(token);
+        return username.equals(user.getEmail()) && jwtTokenProvider.validateToken(token);
     }
 
     public String getUsernameFromToken(String token) {
