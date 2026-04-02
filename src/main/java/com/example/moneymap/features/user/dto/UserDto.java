@@ -1,4 +1,4 @@
-package com.example.moneymap.features.user;
+package com.example.moneymap.features.user.dto;
 
 import lombok.AllArgsConstructor;
 import lombok.Data;
@@ -14,4 +14,5 @@ public class UserDto {
     private String role;
     private String firstName;
     private String lastName;
+    private boolean enabled;
 }

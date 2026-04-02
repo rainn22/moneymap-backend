@@ -1,10 +1,13 @@
-package com.example.moneymap.features.user;
+package com.example.moneymap.features.user.service;
 
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.stereotype.Service;
 
+import com.example.moneymap.features.user.dto.UserDto;
+import com.example.moneymap.features.user.entity.User;
+import com.example.moneymap.features.user.repository.UserRepository;
 import java.util.Optional;
 
 @Service
@@ -18,9 +21,10 @@ public class UserService {
                 user.getId(),
                 user.getUsername(),
                 user.getEmail(),
-                "ROLE_USER",          // or actual role if implemented
-                user.getFirstName(),  // can be null
-                user.getLastName()    // can be null
+                user.getRole().name(),
+                user.getFirstName(),
+                user.getLastName(),
+                user.isEnabled()
         );
     }
 
@@ -29,21 +33,26 @@ public class UserService {
                 .map(this::mapToDto);
     }
 
-    public Optional<UserDto> getUserByUsername(String username) {
-        return userRepository.findByUsername(username)
+    public Optional<UserDto> getUserByEmail(String email) {
+        return userRepository.findByEmail(email)
                 .map(this::mapToDto);
     }
 
     public Optional<UserDto> getCurrentUser() {
         Object principal = SecurityContextHolder.getContext().getAuthentication().getPrincipal();
-        String username;
 
-        if (principal instanceof UserDetails) {
-            username = ((UserDetails) principal).getUsername();
-        } else {
-            username = principal.toString();
+        if (principal instanceof User user) {
+            return Optional.of(mapToDto(user));
         }
 
-        return getUserByUsername(username);
+        String email;
+
+        if (principal instanceof UserDetails) {
+            email = ((UserDetails) principal).getUsername();
+        } else {
+            email = principal.toString();
+        }
+
+        return getUserByEmail(email);
     }
 }

@@ -1,10 +1,13 @@
-package com.example.moneymap.features.user;
+package com.example.moneymap.features.user.controller;
 
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.Map;
+import com.example.moneymap.features.user.dto.UserDto;
+import com.example.moneymap.features.user.entity.User;
+import com.example.moneymap.features.user.repository.UserRepository;
 
 @RestController
 @RequestMapping("/api/users")
@@ -22,9 +25,10 @@ public class UserController {
                 user.getId(),
                 user.getUsername(),
                 user.getEmail(),
-                "ROLE_USER",
+                user.getRole().name(),
                 user.getFirstName(),
-                user.getLastName()
+                user.getLastName(),
+                user.isEnabled()
         );
     }
 
@@ -48,9 +52,10 @@ public class UserController {
                 updatedUser.getId(),
                 updatedUser.getUsername(),
                 updatedUser.getEmail(),
-                "ROLE_USER",
+                updatedUser.getRole().name(),
                 updatedUser.getFirstName(),
-                updatedUser.getLastName()
+                updatedUser.getLastName(),
+                updatedUser.isEnabled()
         );
     }
 }
