@@ -1,5 +1,6 @@
 package com.example.moneymap.features.transaction.repository;
 
+import com.example.moneymap.features.admin.dto.AdminUserSpendingResponse;
 import com.example.moneymap.features.transaction.entity.Transaction;
 import com.example.moneymap.features.transaction.entity.TransactionType;
 import com.example.moneymap.features.user.entity.User;
@@ -7,6 +8,8 @@ import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.util.List;
 import java.util.Optional;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
@@ -14,6 +17,38 @@ import org.springframework.data.repository.query.Param;
 public interface TransactionRepository extends JpaRepository<Transaction, Long> {
 
     List<Transaction> findByUserOrderByTransactionDateDescCreatedAtDesc(User user);
+
+    @Query(value = """
+            select t
+            from Transaction t
+            where t.user = :user
+              and (:type is null or t.type = :type)
+              and (:categoryId is null or t.category.id = :categoryId)
+              and (
+                    :searchPattern is null
+                    or (t.description is not null and lower(t.description) like :searchPattern)
+                    or lower(t.category.name) like :searchPattern
+                  )
+            order by t.transactionDate desc, t.createdAt desc
+            """,
+            countQuery = """
+                    select count(t)
+                    from Transaction t
+                    where t.user = :user
+                      and (:type is null or t.type = :type)
+                      and (:categoryId is null or t.category.id = :categoryId)
+                      and (
+                            :searchPattern is null
+                            or (t.description is not null and lower(t.description) like :searchPattern)
+                            or lower(t.category.name) like :searchPattern
+                          )
+                    """)
+    Page<Transaction> findAllByFilters(
+            @Param("user") User user,
+            @Param("searchPattern") String searchPattern,
+            @Param("type") TransactionType type,
+            @Param("categoryId") Long categoryId,
+            Pageable pageable);
 
     Optional<Transaction> findByIdAndUser(Long id, User user);
 
@@ -73,13 +108,26 @@ public interface TransactionRepository extends JpaRepository<Transaction, Long> 
     long countDistinctUsersWithExpenses();
 
     @Query("""
-            select t
+            select new com.example.moneymap.features.admin.dto.AdminUserSpendingResponse(
+                t.user.id,
+                t.user.username,
+                t.user.email,
+                t.category.id,
+                t.category.name,
+                coalesce(sum(t.amount), 0),
+                count(t.id)
+            )
             from Transaction t
-            where (:userId is null or t.user.id = :userId)
+            where t.type = com.example.moneymap.features.transaction.entity.TransactionType.EXPENSE
+              and (:userId is null or t.user.id = :userId)
               and (:categoryId is null or t.category.id = :categoryId)
-            order by t.transactionDate desc, t.createdAt desc
+            group by t.user.id, t.user.username, t.user.email, t.category.id, t.category.name
+            order by coalesce(sum(t.amount), 0) desc, t.user.id asc, t.category.name asc
             """)
-    List<Transaction> findAllForAdmin(@Param("userId") Long userId, @Param("categoryId") Long categoryId);
+    List<AdminUserSpendingResponse> findSpendingSummariesForAdmin(
+            @Param("userId") Long userId,
+            @Param("categoryId") Long categoryId
+    );
 
     @Query(value = """
             select c.name

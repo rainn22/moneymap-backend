@@ -4,8 +4,8 @@ import com.example.moneymap.common.dto.ApiResponse;
 import com.example.moneymap.features.admin.dto.AdminAlertResponse;
 import com.example.moneymap.features.admin.dto.AdminDashboardResponse;
 import com.example.moneymap.features.admin.dto.AdminUserResponse;
+import com.example.moneymap.features.admin.dto.AdminUserSpendingResponse;
 import com.example.moneymap.features.admin.service.AdminService;
-import com.example.moneymap.features.transaction.dto.TransactionResponse;
 import java.util.List;
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -43,11 +43,11 @@ public class AdminController {
     }
 
     @GetMapping("/transactions")
-    public ApiResponse<List<TransactionResponse>> getTransactions(
+    public ApiResponse<List<AdminUserSpendingResponse>> getTransactions(
             @RequestParam(required = false) Long userId,
             @RequestParam(required = false) Long categoryId
     ) {
-        return ApiResponse.success(adminService.getAllTransactions(userId, categoryId));
+        return ApiResponse.success(adminService.getUserSpendingSummaries(userId, categoryId));
     }
 
     @GetMapping("/alerts")

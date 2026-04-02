@@ -22,6 +22,13 @@ public interface AlertRepository extends JpaRepository<Alert, Long> {
             LocalDateTime periodEnd
     );
 
+    @Modifying
+    void deleteByBudgetAndPeriodStartAndPeriodEnd(
+            Budget budget,
+            LocalDateTime periodStart,
+            LocalDateTime periodEnd
+    );
+
     long countByUserAndIsReadFalse(User user);
 
     List<Alert> findAllByOrderByCreatedAtDesc();

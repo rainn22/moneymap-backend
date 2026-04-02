@@ -4,6 +4,7 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -160,7 +161,7 @@ class ApiEndpointIntegrationTests {
 
     @Test
     void userEndpoints_shouldCoverBudgetTransactionAlertDashboardAndSavingGoalFlows() throws Exception {
-        seedVerifiedUser("demo_user", "demo_user@example.com", "Password123", Role.USER);
+        User user = seedVerifiedUser("demo_user", "demo_user@example.com", "Password123", Role.USER);
         Category foodCategory = seedCategory("Food", TransactionType.EXPENSE);
 
         String userToken = loginAndGetAccessToken("demo_user@example.com", "Password123");
@@ -205,6 +206,44 @@ class ApiEndpointIntegrationTests {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data[0].categoryName").value("Food"));
 
+        MvcResult userCategoryResult = mockMvc.perform(post("/api/categories")
+                        .header(HttpHeaders.AUTHORIZATION, bearer(userToken))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "name": "Side Hustle",
+                                  "type": "INCOME"
+                                }
+                                """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.success").value(true))
+                .andExpect(jsonPath("$.data.name").value("Side Hustle"))
+                .andExpect(jsonPath("$.data.isDefault").value(false))
+                .andExpect(jsonPath("$.data.userId").value(user.getId()))
+                .andReturn();
+
+        String userCategoryId = readPath(userCategoryResult, "data", "id");
+
+        mockMvc.perform(get("/api/categories")
+                        .header(HttpHeaders.AUTHORIZATION, bearer(userToken)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.length()").value(2));
+
+        mockMvc.perform(post("/api/transactions")
+                        .header(HttpHeaders.AUTHORIZATION, bearer(userToken))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "categoryId": %s,
+                                  "amount": 100,
+                                  "type": "INCOME",
+                                  "description": "Freelance payment",
+                                  "transactionDate": "2026-04-10"
+                                }
+                                """.formatted(userCategoryId)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.categoryName").value("Side Hustle"));
+
         MvcResult createTransactionResult = mockMvc.perform(post("/api/transactions")
                         .header(HttpHeaders.AUTHORIZATION, bearer(userToken))
                         .contentType(MediaType.APPLICATION_JSON)
@@ -227,17 +266,41 @@ class ApiEndpointIntegrationTests {
         mockMvc.perform(get("/api/transactions")
                         .header(HttpHeaders.AUTHORIZATION, bearer(userToken)))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.data[0].description").value("Food expense for alert test"));
+                .andExpect(jsonPath("$.data.items[0].description").value("Food expense for alert test"))
+                .andExpect(jsonPath("$.data.offset").value(0))
+                .andExpect(jsonPath("$.data.limit").value(20))
+                .andExpect(jsonPath("$.data.total").value(2));
 
         mockMvc.perform(get("/api/transactions/{id}", transactionId)
                         .header(HttpHeaders.AUTHORIZATION, bearer(userToken)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.id").value(Long.parseLong(transactionId)));
 
+        mockMvc.perform(put("/api/transactions/{id}", transactionId)
+                        .header(HttpHeaders.AUTHORIZATION, bearer(userToken))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "categoryId": %d,
+                                  "amount": 260,
+                                  "type": "EXPENSE",
+                                  "description": "Food expense updated",
+                                  "transactionDate": "2026-04-21"
+                                }
+                                """.formatted(foodCategory.getId())))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.success").value(true))
+                .andExpect(jsonPath("$.data.id").value(Long.parseLong(transactionId)))
+                .andExpect(jsonPath("$.data.amount").value(260))
+                .andExpect(jsonPath("$.data.description").value("Food expense updated"))
+                .andExpect(jsonPath("$.data.transactionDate").value("2026-04-21"));
+
         MvcResult alertsResult = mockMvc.perform(get("/api/alerts")
                         .header(HttpHeaders.AUTHORIZATION, bearer(userToken)))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.data[0].thresholdPercent").value(80))
+                .andExpect(jsonPath("$.data.length()").value(3))
+                .andExpect(jsonPath("$.data[0].thresholdPercent").value(100))
+                .andExpect(jsonPath("$.data[0].alertType").value("DAILY"))
                 .andReturn();
 
         String alertId = readPath(alertsResult, "data", "0", "id");
@@ -252,8 +315,8 @@ class ApiEndpointIntegrationTests {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.totalExpense").value(260))
                 .andExpect(jsonPath("$.data.remainingMonthlyBudget").value(40))
-                .andExpect(jsonPath("$.data.unreadAlertsCount").value(0))
-                .andExpect(jsonPath("$.data.lastFiveTransactions[0].description").value("Food expense for alert test"));
+                .andExpect(jsonPath("$.data.unreadAlertsCount").value(2))
+                .andExpect(jsonPath("$.data.lastFiveTransactions[0].description").value("Food expense updated"));
 
         MvcResult savingGoalResult = mockMvc.perform(post("/api/saving-goals")
                         .header(HttpHeaders.AUTHORIZATION, bearer(userToken))
@@ -300,10 +363,130 @@ class ApiEndpointIntegrationTests {
     }
 
     @Test
+    void getTransactions_shouldSupportCombinedFiltersAndOffsetPagination() throws Exception {
+        seedVerifiedUser("demo_user", "demo_user@example.com", "Password123", Role.USER);
+        Category foodCategory = seedCategory("Food", TransactionType.EXPENSE);
+        Category salaryCategory = seedCategory("Salary", TransactionType.INCOME);
+
+        String userToken = loginAndGetAccessToken("demo_user@example.com", "Password123");
+
+        mockMvc.perform(post("/api/transactions")
+                        .header(HttpHeaders.AUTHORIZATION, bearer(userToken))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "categoryId": %d,
+                                  "amount": 25,
+                                  "type": "EXPENSE",
+                                  "description": "Coffee beans",
+                                  "transactionDate": "2026-04-03"
+                                }
+                                """.formatted(foodCategory.getId())))
+                .andExpect(status().isOk());
+
+        mockMvc.perform(post("/api/transactions")
+                        .header(HttpHeaders.AUTHORIZATION, bearer(userToken))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "categoryId": %d,
+                                  "amount": 40,
+                                  "type": "EXPENSE",
+                                  "description": "Coffee shop",
+                                  "transactionDate": "2026-04-02"
+                                }
+                                """.formatted(foodCategory.getId())))
+                .andExpect(status().isOk());
+
+        mockMvc.perform(post("/api/transactions")
+                        .header(HttpHeaders.AUTHORIZATION, bearer(userToken))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "categoryId": %d,
+                                  "amount": 2000,
+                                  "type": "INCOME",
+                                  "description": "Monthly salary",
+                                  "transactionDate": "2026-04-01"
+                                }
+                                """.formatted(salaryCategory.getId())))
+                .andExpect(status().isOk());
+
+        mockMvc.perform(get("/api/transactions")
+                        .param("search", "coffee")
+                        .param("type", "EXPENSE")
+                        .param("categoryId", foodCategory.getId().toString())
+                        .param("offset", "1")
+                        .param("limit", "1")
+                        .header(HttpHeaders.AUTHORIZATION, bearer(userToken)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.items.length()").value(1))
+                .andExpect(jsonPath("$.data.items[0].description").value("Coffee shop"))
+                .andExpect(jsonPath("$.data.offset").value(1))
+                .andExpect(jsonPath("$.data.limit").value(1))
+                .andExpect(jsonPath("$.data.total").value(2));
+    }
+
+    @Test
+    void updateTransaction_shouldEditOwnedTransaction() throws Exception {
+        seedVerifiedUser("demo_user", "demo_user@example.com", "Password123", Role.USER);
+        Category foodCategory = seedCategory("Food", TransactionType.EXPENSE);
+        Category salaryCategory = seedCategory("Salary", TransactionType.INCOME);
+
+        String userToken = loginAndGetAccessToken("demo_user@example.com", "Password123");
+
+        MvcResult createTransactionResult = mockMvc.perform(post("/api/transactions")
+                        .header(HttpHeaders.AUTHORIZATION, bearer(userToken))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "categoryId": %d,
+                                  "amount": 25,
+                                  "type": "EXPENSE",
+                                  "description": "Coffee beans",
+                                  "transactionDate": "2026-04-03"
+                                }
+                                """.formatted(foodCategory.getId())))
+                .andExpect(status().isOk())
+                .andReturn();
+
+        String transactionId = readPath(createTransactionResult, "data", "id");
+
+        mockMvc.perform(put("/api/transactions/{id}", transactionId)
+                        .header(HttpHeaders.AUTHORIZATION, bearer(userToken))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "categoryId": %d,
+                                  "amount": 2100,
+                                  "type": "INCOME",
+                                  "description": "Updated salary",
+                                  "transactionDate": "2026-04-10"
+                                }
+                                """.formatted(salaryCategory.getId())))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.id").value(Long.parseLong(transactionId)))
+                .andExpect(jsonPath("$.data.categoryId").value(salaryCategory.getId()))
+                .andExpect(jsonPath("$.data.categoryName").value("Salary"))
+                .andExpect(jsonPath("$.data.amount").value(2100))
+                .andExpect(jsonPath("$.data.type").value("INCOME"))
+                .andExpect(jsonPath("$.data.description").value("Updated salary"))
+                .andExpect(jsonPath("$.data.transactionDate").value("2026-04-10"));
+
+        mockMvc.perform(get("/api/transactions/{id}", transactionId)
+                        .header(HttpHeaders.AUTHORIZATION, bearer(userToken)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.categoryId").value(salaryCategory.getId()))
+                .andExpect(jsonPath("$.data.type").value("INCOME"))
+                .andExpect(jsonPath("$.data.description").value("Updated salary"));
+    }
+
+    @Test
     void adminEndpoints_shouldCoverCategoryManagementAnalyticsAndMonitoring() throws Exception {
         User admin = seedVerifiedUser("admin", "admin@moneymap.com", "Admin@123456", Role.ADMIN);
         User normalUser = seedVerifiedUser("jane", "jane@example.com", "Password123", Role.USER);
         Category foodCategory = seedCategory("Food", TransactionType.EXPENSE);
+        Category salaryCategory = seedCategory("Salary", TransactionType.INCOME);
 
         budgetRepository.save(com.example.moneymap.features.budget.entity.Budget.builder()
                 .user(normalUser)
@@ -329,6 +512,34 @@ class ApiEndpointIntegrationTests {
                                 """.formatted(foodCategory.getId())))
                 .andExpect(status().isOk());
 
+        mockMvc.perform(post("/api/transactions")
+                        .header(HttpHeaders.AUTHORIZATION, bearer(userToken))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "categoryId": %d,
+                                  "amount": 40,
+                                  "type": "EXPENSE",
+                                  "description": "Another private transaction",
+                                  "transactionDate": "2026-04-21"
+                                }
+                                """.formatted(foodCategory.getId())))
+                .andExpect(status().isOk());
+
+        mockMvc.perform(post("/api/transactions")
+                        .header(HttpHeaders.AUTHORIZATION, bearer(userToken))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "categoryId": %d,
+                                  "amount": 1000,
+                                  "type": "INCOME",
+                                  "description": "Salary should not appear in spending trend",
+                                  "transactionDate": "2026-04-22"
+                                }
+                                """.formatted(salaryCategory.getId())))
+                .andExpect(status().isOk());
+
         String adminToken = loginAndGetAccessToken("admin@moneymap.com", "Admin@123456");
 
         mockMvc.perform(post("/api/categories")
@@ -346,7 +557,7 @@ class ApiEndpointIntegrationTests {
         mockMvc.perform(get("/api/categories")
                         .header(HttpHeaders.AUTHORIZATION, bearer(adminToken)))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.data.length()").value(2));
+                .andExpect(jsonPath("$.data.length()").value(3));
 
         mockMvc.perform(post("/api/categories")
                         .header(HttpHeaders.AUTHORIZATION, bearer(userToken))
@@ -357,15 +568,22 @@ class ApiEndpointIntegrationTests {
                                   "type": "EXPENSE"
                                 }
                                 """))
-                .andExpect(status().isForbidden());
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.name").value("Bills"))
+                .andExpect(jsonPath("$.data.isDefault").value(false));
+
+        mockMvc.perform(get("/api/categories")
+                        .header(HttpHeaders.AUTHORIZATION, bearer(userToken)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.length()").value(4));
 
         mockMvc.perform(get("/api/admin/dashboard")
                         .header(HttpHeaders.AUTHORIZATION, bearer(adminToken)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.totalUsers").value(2))
-                .andExpect(jsonPath("$.data.totalTransactions").value(1))
+                .andExpect(jsonPath("$.data.totalTransactions").value(3))
                 .andExpect(jsonPath("$.data.totalBudgets").value(1))
-                .andExpect(jsonPath("$.data.totalAlerts").value(1))
+                .andExpect(jsonPath("$.data.totalAlerts").value(6))
                 .andExpect(jsonPath("$.data.mostSpentCategory").value("Food"));
 
         mockMvc.perform(get("/api/admin/users")
@@ -386,14 +604,23 @@ class ApiEndpointIntegrationTests {
         mockMvc.perform(get("/api/admin/transactions")
                         .header(HttpHeaders.AUTHORIZATION, bearer(adminToken)))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.data[0].description").value("Admin-visible transaction"));
+                .andExpect(jsonPath("$.data[0].userId").value(normalUser.getId()))
+                .andExpect(jsonPath("$.data[0].userEmail").value("jane@example.com"))
+                .andExpect(jsonPath("$.data[0].categoryId").value(foodCategory.getId()))
+                .andExpect(jsonPath("$.data[0].categoryName").value("Food"))
+                .andExpect(jsonPath("$.data[0].totalSpending").value(300))
+                .andExpect(jsonPath("$.data[0].transactionCount").value(2))
+                .andExpect(jsonPath("$.data[0].description").doesNotExist())
+                .andExpect(jsonPath("$.data[0].amount").doesNotExist());
 
         mockMvc.perform(get("/api/admin/transactions")
                         .param("userId", normalUser.getId().toString())
                         .param("categoryId", foodCategory.getId().toString())
                         .header(HttpHeaders.AUTHORIZATION, bearer(adminToken)))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.data.length()").value(1));
+                .andExpect(jsonPath("$.data.length()").value(1))
+                .andExpect(jsonPath("$.data[0].totalSpending").value(300))
+                .andExpect(jsonPath("$.data[0].transactionCount").value(2));
 
         mockMvc.perform(get("/api/admin/alerts")
                         .header(HttpHeaders.AUTHORIZATION, bearer(adminToken)))

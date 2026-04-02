@@ -3,11 +3,10 @@ package com.example.moneymap.features.admin.service;
 import com.example.moneymap.features.admin.dto.AdminAlertResponse;
 import com.example.moneymap.features.admin.dto.AdminDashboardResponse;
 import com.example.moneymap.features.admin.dto.AdminUserResponse;
+import com.example.moneymap.features.admin.dto.AdminUserSpendingResponse;
 import com.example.moneymap.features.alert.repository.AlertRepository;
 import com.example.moneymap.features.budget.repository.BudgetRepository;
 import com.example.moneymap.features.saving.repository.SavingGoalRepository;
-import com.example.moneymap.features.transaction.dto.TransactionResponse;
-import com.example.moneymap.features.transaction.entity.Transaction;
 import com.example.moneymap.features.transaction.repository.TransactionRepository;
 import com.example.moneymap.features.user.entity.Role;
 import com.example.moneymap.features.user.entity.User;
@@ -75,10 +74,8 @@ public class AdminService {
     }
 
     @Transactional(readOnly = true)
-    public List<TransactionResponse> getAllTransactions(Long userId, Long categoryId) {
-        return transactionRepository.findAllForAdmin(userId, categoryId).stream()
-                .map(this::mapTransaction)
-                .toList();
+    public List<AdminUserSpendingResponse> getUserSpendingSummaries(Long userId, Long categoryId) {
+        return transactionRepository.findSpendingSummariesForAdmin(userId, categoryId);
     }
 
     @Transactional(readOnly = true)
@@ -112,20 +109,6 @@ public class AdminService {
                 .lastName(user.getLastName())
                 .role(user.getRole())
                 .enabled(user.isEnabled())
-                .build();
-    }
-
-    private TransactionResponse mapTransaction(Transaction transaction) {
-        return TransactionResponse.builder()
-                .id(transaction.getId())
-                .userId(transaction.getUser().getId())
-                .categoryId(transaction.getCategory().getId())
-                .categoryName(transaction.getCategory().getName())
-                .amount(transaction.getAmount())
-                .type(transaction.getType())
-                .description(transaction.getDescription())
-                .transactionDate(transaction.getTransactionDate())
-                .createdAt(transaction.getCreatedAt())
                 .build();
     }
 }
