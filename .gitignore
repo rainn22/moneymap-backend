@@ -32,10 +32,10 @@ build/
 ### VS Code ###
 .vscode/
 
-# Spring Boot config (contains secrets)
-src/main/resources/application.properties
+# Spring Boot local-only config
 src/main/resources/application-dev.properties
-src/main/resources/application-production.properties
 
 .DS_Store
 postman
+.env
+.env.example
