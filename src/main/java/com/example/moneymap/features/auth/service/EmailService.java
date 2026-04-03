@@ -21,7 +21,7 @@ public class EmailService {
 
     private static final Logger log = LoggerFactory.getLogger(EmailService.class);
 
-    private final JavaMailSender mailSender;
+    private final ObjectProvider<JavaMailSender> mailSenderProvider;
     private final ObjectProvider<Resend> resendProvider;
 
     @Value("${app.mail.enabled:false}")
@@ -63,6 +63,12 @@ public class EmailService {
     }
 
     private void sendWithSmtp(String toEmail, String subject, String body) {
+        JavaMailSender mailSender = mailSenderProvider.getIfAvailable();
+        if (mailSender == null) {
+            log.error("Email sending failed because SMTP is selected but JavaMailSender is not configured");
+            return;
+        }
+
         SimpleMailMessage message = new SimpleMailMessage();
         message.setFrom(fromEmail);
         message.setTo(toEmail);
