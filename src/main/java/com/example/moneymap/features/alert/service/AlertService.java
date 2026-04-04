@@ -10,7 +10,6 @@ import com.example.moneymap.features.budget.entity.BudgetAllocationType;
 import com.example.moneymap.features.budget.entity.Budget;
 import com.example.moneymap.features.budget.entity.BudgetPeriodType;
 import com.example.moneymap.features.budget.repository.BudgetRepository;
-import com.example.moneymap.features.category.entity.CategoryGroupType;
 import com.example.moneymap.features.category.entity.CategorySpendingType;
 import com.example.moneymap.features.transaction.entity.Transaction;
 import com.example.moneymap.features.transaction.entity.TransactionType;
@@ -66,7 +65,6 @@ public class AlertService {
         refreshAlertsForDate(
                 transaction.getUser(),
                 transaction.getCategory().getId(),
-                transaction.getCategory().getGroupType(),
                 transaction.getTransactionDate(),
                 true
         );
@@ -76,27 +74,24 @@ public class AlertService {
     public void refreshAlertsForDate(
             User user,
             Long categoryId,
-            CategoryGroupType groupType,
             LocalDate referenceDate,
             boolean sendNotifications
     ) {
-        refreshAlertsForDateInternal(user, categoryId, groupType, referenceDate, sendNotifications);
+        refreshAlertsForDateInternal(user, categoryId, referenceDate, sendNotifications);
     }
 
     @Transactional
     public void refreshAlertsForRemovedExpense(
             User user,
             Long categoryId,
-            CategoryGroupType groupType,
             LocalDate referenceDate
     ) {
-        refreshAlertsForDateInternal(user, categoryId, groupType, referenceDate, false);
+        refreshAlertsForDateInternal(user, categoryId, referenceDate, false);
     }
 
     private void refreshAlertsForDateInternal(
             User user,
             Long categoryId,
-            CategoryGroupType groupType,
             LocalDate referenceDate,
             boolean sendNotifications
     ) {
@@ -106,7 +101,7 @@ public class AlertService {
         );
 
         for (Budget budget : budgets) {
-            if (!isExpenseBudget(budget) || !matchesAllocation(budget, categoryId, groupType)) {
+            if (!isExpenseBudget(budget) || !matchesAllocation(budget, categoryId)) {
                 continue;
             }
 
@@ -224,7 +219,7 @@ public class AlertService {
         return budget.getCategory() != null && budget.getCategory().getSpendingType() == CategorySpendingType.VARIABLE;
     }
 
-    private boolean matchesAllocation(Budget budget, Long categoryId, CategoryGroupType groupType) {
+    private boolean matchesAllocation(Budget budget, Long categoryId) {
         if (budget.getCategory() == null) {
             return true;
         }

@@ -39,10 +39,6 @@ public class Category {
     private TransactionType type;
 
     @Enumerated(EnumType.STRING)
-    @Column(name = "group_type")
-    private CategoryGroupType groupType;
-
-    @Enumerated(EnumType.STRING)
     @Column(name = "spending_type")
     private CategorySpendingType spendingType;
 

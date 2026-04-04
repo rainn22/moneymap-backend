@@ -2,6 +2,7 @@ package com.example.moneymap.config;
 
 import jakarta.annotation.PostConstruct;
 import lombok.RequiredArgsConstructor;
+import org.springframework.dao.DataAccessException;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Component;
 
@@ -25,10 +26,6 @@ public class SchemaCompatibilityConfig {
         );
         jdbcTemplate.execute(
             "ALTER TABLE budgets " +
-                "ADD COLUMN IF NOT EXISTS group_type VARCHAR(50)"
-        );
-        jdbcTemplate.execute(
-            "ALTER TABLE budgets " +
                 "ADD COLUMN IF NOT EXISTS percentage NUMERIC(5,2)"
         );
         jdbcTemplate.execute(
@@ -39,10 +36,15 @@ public class SchemaCompatibilityConfig {
             "UPDATE budgets SET allocation_type = 'CATEGORY' " +
                 "WHERE allocation_type IS NULL"
         );
-        jdbcTemplate.execute(
-            "UPDATE budgets SET allocation_type = 'CATEGORY' " +
-                "WHERE allocation_type = 'GROUP'"
-        );
+        try {
+            jdbcTemplate.execute(
+                "UPDATE budgets SET allocation_type = 'CATEGORY' " +
+                    "WHERE allocation_type = 'GROUP'"
+            );
+        } catch (DataAccessException ignored) {
+            // H2 enum columns reject comparisons against removed enum literals.
+            // PostgreSQL legacy databases still benefit from the migration above.
+        }
         jdbcTemplate.execute(
             "ALTER TABLE budgets " +
                 "ALTER COLUMN allocation_type SET NOT NULL"
@@ -50,10 +52,6 @@ public class SchemaCompatibilityConfig {
     }
 
     private void alignCategorySchema() {
-        jdbcTemplate.execute(
-            "ALTER TABLE categories " +
-                "ADD COLUMN IF NOT EXISTS group_type VARCHAR(50)"
-        );
         jdbcTemplate.execute(
             "ALTER TABLE categories " +
                 "ADD COLUMN IF NOT EXISTS spending_type VARCHAR(50)"

@@ -3,7 +3,6 @@ package com.example.moneymap.features.transaction.service;
 import com.example.moneymap.common.security.CurrentUserService;
 import com.example.moneymap.features.alert.service.AlertService;
 import com.example.moneymap.features.category.entity.Category;
-import com.example.moneymap.features.category.entity.CategoryGroupType;
 import com.example.moneymap.features.category.service.CategoryService;
 import com.example.moneymap.features.saving.entity.SavingGoal;
 import com.example.moneymap.features.saving.repository.SavingGoalRepository;
@@ -79,7 +78,6 @@ public class TransactionService {
                 .orElseThrow(() -> new RuntimeException("Transaction not found"));
         TransactionType previousType = transaction.getType();
         Long previousCategoryId = transaction.getCategory() == null ? null : transaction.getCategory().getId();
-        CategoryGroupType previousGroupType = transaction.getCategory() == null ? null : transaction.getCategory().getGroupType();
         java.time.LocalDate previousDate = transaction.getTransactionDate();
         Category category = request.getCategoryId() == null ? null : categoryService.getCategoryById(request.getCategoryId());
         SavingGoal savingGoal = request.getSavingGoalId() == null
@@ -92,7 +90,7 @@ public class TransactionService {
         Transaction updatedTransaction = transactionRepository.save(transaction);
 
         if (previousType == TransactionType.EXPENSE) {
-            alertService.refreshAlertsForRemovedExpense(user, previousCategoryId, previousGroupType, previousDate);
+            alertService.refreshAlertsForRemovedExpense(user, previousCategoryId, previousDate);
         }
 
         if (updatedTransaction.getType() == TransactionType.EXPENSE) {
@@ -109,12 +107,11 @@ public class TransactionService {
                 .orElseThrow(() -> new RuntimeException("Transaction not found"));
         TransactionType previousType = transaction.getType();
         Long previousCategoryId = transaction.getCategory() == null ? null : transaction.getCategory().getId();
-        CategoryGroupType previousGroupType = transaction.getCategory() == null ? null : transaction.getCategory().getGroupType();
         java.time.LocalDate previousDate = transaction.getTransactionDate();
         transactionRepository.delete(transaction);
 
         if (previousType == TransactionType.EXPENSE) {
-            alertService.refreshAlertsForRemovedExpense(user, previousCategoryId, previousGroupType, previousDate);
+            alertService.refreshAlertsForRemovedExpense(user, previousCategoryId, previousDate);
         }
     }
 

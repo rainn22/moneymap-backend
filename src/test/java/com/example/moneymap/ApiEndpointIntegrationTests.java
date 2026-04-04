@@ -28,7 +28,6 @@ import com.example.moneymap.features.auth.repository.RevokedTokenRepository;
 import com.example.moneymap.features.auth.repository.VerificationTokenRepository;
 import com.example.moneymap.features.budget.repository.BudgetRepository;
 import com.example.moneymap.features.category.entity.Category;
-import com.example.moneymap.features.category.entity.CategoryGroupType;
 import com.example.moneymap.features.category.entity.CategorySpendingType;
 import com.example.moneymap.features.category.repository.CategoryRepository;
 import com.example.moneymap.features.saving.repository.SavingGoalRepository;
@@ -396,9 +395,9 @@ class ApiEndpointIntegrationTests {
     @Test
     void budgetSetup_shouldSupportManualCategoryAndSavingsAllocations() throws Exception {
         seedVerifiedUser("demo_user", "demo_user@example.com", "Password123", Role.USER);
-        Category rentCategory = seedCategory("Rent", TransactionType.EXPENSE, CategoryGroupType.NEEDS, CategorySpendingType.FIXED);
-        Category foodCategory = seedCategory("Food", TransactionType.EXPENSE, CategoryGroupType.NEEDS, CategorySpendingType.VARIABLE);
-        Category funCategory = seedCategory("Fun", TransactionType.EXPENSE, CategoryGroupType.WANTS, CategorySpendingType.VARIABLE);
+        Category rentCategory = seedCategory("Rent", TransactionType.EXPENSE, CategorySpendingType.FIXED);
+        Category foodCategory = seedCategory("Food", TransactionType.EXPENSE, CategorySpendingType.VARIABLE);
+        Category funCategory = seedCategory("Fun", TransactionType.EXPENSE, CategorySpendingType.VARIABLE);
 
         String userToken = loginAndGetAccessToken("demo_user@example.com", "Password123");
 
@@ -595,14 +594,12 @@ class ApiEndpointIntegrationTests {
                         .content("""
                                 {
                                   "name": "Car Fund",
-                                  "type": "SAVING",
-                                  "groupType": "SAVING"
+                                  "type": "SAVING"
                                 }
                                 """))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.name").value("Car Fund"))
-                .andExpect(jsonPath("$.data.type").value("SAVING"))
-                .andExpect(jsonPath("$.data.groupType").value("SAVING"));
+                .andExpect(jsonPath("$.data.type").value("SAVING"));
     }
 
     @Test
@@ -881,23 +878,13 @@ class ApiEndpointIntegrationTests {
     }
 
     private Category seedCategory(String name, TransactionType type) {
-        return seedCategory(name, type, null, null);
+        return seedCategory(name, type, null);
     }
 
-    private Category seedCategory(String name, TransactionType type, CategoryGroupType groupType) {
-        return seedCategory(name, type, groupType, null);
-    }
-
-    private Category seedCategory(
-            String name,
-            TransactionType type,
-            CategoryGroupType groupType,
-            CategorySpendingType spendingType
-    ) {
+    private Category seedCategory(String name, TransactionType type, CategorySpendingType spendingType) {
         return categoryRepository.save(Category.builder()
                 .name(name)
                 .type(type)
-                .groupType(groupType)
                 .spendingType(spendingType)
                 .build());
     }

@@ -1,7 +1,5 @@
 package com.example.moneymap.features.transaction.repository;
 
-import com.example.moneymap.features.category.entity.CategoryGroupType;
-import com.example.moneymap.features.category.entity.CategorySpendingType;
 import com.example.moneymap.features.transaction.entity.Transaction;
 import com.example.moneymap.features.transaction.entity.TransactionType;
 import com.example.moneymap.features.user.entity.User;
@@ -93,55 +91,6 @@ public interface TransactionRepository extends JpaRepository<Transaction, Long> 
     BigDecimal sumExpenseForBudgetPeriod(
             @Param("user") User user,
             @Param("categoryId") Long categoryId,
-            @Param("startDate") LocalDate startDate,
-            @Param("endDate") LocalDate endDate
-    );
-
-    @Query("""
-            select coalesce(sum(t.amount), 0)
-            from Transaction t
-            where t.user = :user
-              and t.type = com.example.moneymap.features.transaction.entity.TransactionType.EXPENSE
-              and t.transactionDate between :startDate and :endDate
-              and t.category.groupType = :groupType
-            """)
-    BigDecimal sumExpenseForBudgetPeriodByGroupType(
-            @Param("user") User user,
-            @Param("groupType") CategoryGroupType groupType,
-            @Param("startDate") LocalDate startDate,
-            @Param("endDate") LocalDate endDate
-    );
-
-    @Query("""
-            select coalesce(sum(t.amount), 0)
-            from Transaction t
-            where t.user = :user
-              and t.type = com.example.moneymap.features.transaction.entity.TransactionType.EXPENSE
-              and t.transactionDate between :startDate and :endDate
-              and t.category.groupType = :groupType
-              and t.category.spendingType = :spendingType
-            """)
-    BigDecimal sumExpenseForBudgetPeriodByGroupTypeAndSpendingType(
-            @Param("user") User user,
-            @Param("groupType") CategoryGroupType groupType,
-            @Param("spendingType") CategorySpendingType spendingType,
-            @Param("startDate") LocalDate startDate,
-            @Param("endDate") LocalDate endDate
-    );
-
-    @Query("""
-            select coalesce(sum(t.amount), 0)
-            from Transaction t
-            where t.user = :user
-              and t.type = com.example.moneymap.features.transaction.entity.TransactionType.EXPENSE
-              and t.transactionDate between :startDate and :endDate
-              and t.category.groupType in :groupTypes
-              and t.category.spendingType = :spendingType
-            """)
-    BigDecimal sumExpenseForBudgetPeriodByGroupTypesAndSpendingType(
-            @Param("user") User user,
-            @Param("groupTypes") Collection<CategoryGroupType> groupTypes,
-            @Param("spendingType") CategorySpendingType spendingType,
             @Param("startDate") LocalDate startDate,
             @Param("endDate") LocalDate endDate
     );

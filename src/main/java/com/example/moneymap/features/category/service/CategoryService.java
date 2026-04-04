@@ -4,7 +4,6 @@ import com.example.moneymap.common.security.CurrentUserService;
 import com.example.moneymap.features.category.dto.CategoryResponse;
 import com.example.moneymap.features.category.dto.CreateCategoryRequest;
 import com.example.moneymap.features.category.entity.Category;
-import com.example.moneymap.features.category.entity.CategoryGroupType;
 import com.example.moneymap.features.category.entity.CategorySpendingType;
 import com.example.moneymap.features.category.repository.CategoryRepository;
 import com.example.moneymap.features.transaction.entity.TransactionType;
@@ -41,13 +40,11 @@ public class CategoryService {
             throw new RuntimeException("Category name already exists");
         }
 
-        CategoryGroupType resolvedGroupType = resolveGroupType(request);
-        validateCategoryAttributes(request.getType(), resolvedGroupType, request.getSpendingType());
+        validateCategoryAttributes(request.getType(), request.getSpendingType());
 
         Category category = Category.builder()
                 .name(normalizedName)
                 .type(request.getType())
-                .groupType(resolvedGroupType)
                 .spendingType(resolveSpendingType(request.getType(), request.getSpendingType()))
                 .user(user)
                 .build();
@@ -68,13 +65,11 @@ public class CategoryService {
             throw new RuntimeException("Category name already exists");
         }
 
-        CategoryGroupType resolvedGroupType = resolveGroupType(request);
-        validateCategoryAttributes(request.getType(), resolvedGroupType, request.getSpendingType());
+        validateCategoryAttributes(request.getType(), request.getSpendingType());
 
         Category category = Category.builder()
                 .name(normalizedName)
                 .type(request.getType())
-                .groupType(resolvedGroupType)
                 .spendingType(resolveSpendingType(request.getType(), request.getSpendingType()))
                 .user(null)
                 .build();
@@ -209,7 +204,6 @@ public class CategoryService {
                 .id(category.getId())
                 .name(category.getName())
                 .type(category.getType())
-                .groupType(category.getGroupType())
                 .spendingType(category.getSpendingType())
                 .userId(category.getUser() == null ? null : category.getUser().getId())
                 .defaultCategoryId(category.getDefaultCategory() == null ? null : category.getDefaultCategory().getId())
@@ -221,16 +215,12 @@ public class CategoryService {
 
     private void validateCategoryAttributes(
             TransactionType type,
-            CategoryGroupType groupType,
             CategorySpendingType spendingType
     ) {
-        if (type == TransactionType.INCOME && (groupType != null || spendingType != null)) {
-            throw new RuntimeException("Category group type and spending type are only supported for expense categories");
+        if (type == TransactionType.INCOME && spendingType != null) {
+            throw new RuntimeException("Spending type is only supported for expense categories");
         }
         if (type == TransactionType.SAVING) {
-            if (groupType != null && groupType != CategoryGroupType.SAVING) {
-                throw new RuntimeException("Saving categories must use SAVING as group type");
-            }
             if (spendingType != null) {
                 throw new RuntimeException("Saving categories do not support spending type");
             }
@@ -242,10 +232,6 @@ public class CategoryService {
             return null;
         }
         return spendingType == null ? CategorySpendingType.VARIABLE : spendingType;
-    }
-
-    private CategoryGroupType resolveGroupType(CreateCategoryRequest request) {
-        return request.getGroupType();
     }
 
     private CategoryResponse upsertCategoryOverride(
@@ -266,12 +252,10 @@ public class CategoryService {
     }
 
     private Category updateCategoryEntity(Category category, CreateCategoryRequest request, String normalizedName) {
-        CategoryGroupType resolvedGroupType = resolveGroupType(request);
-        validateCategoryAttributes(request.getType(), resolvedGroupType, request.getSpendingType());
+        validateCategoryAttributes(request.getType(), request.getSpendingType());
 
         category.setName(normalizedName);
         category.setType(request.getType());
-        category.setGroupType(resolvedGroupType);
         category.setSpendingType(resolveSpendingType(request.getType(), request.getSpendingType()));
         return categoryRepository.save(category);
     }
