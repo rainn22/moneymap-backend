@@ -10,8 +10,9 @@ import lombok.Data;
 
 @Data
 public class CreateTransactionRequest {
-    @NotNull(message = "Category is required")
     private Long categoryId;
+
+    private Long savingGoalId;
 
     @NotNull(message = "Amount is required")
     @DecimalMin(value = "0.01", message = "Amount must be greater than zero")

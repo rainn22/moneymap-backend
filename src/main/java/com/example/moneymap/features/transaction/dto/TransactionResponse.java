@@ -14,6 +14,8 @@ public class TransactionResponse {
     private Long userId;
     private Long categoryId;
     private String categoryName;
+    private Long savingGoalId;
+    private String savingGoalTitle;
     private BigDecimal amount;
     private TransactionType type;
     private String description;

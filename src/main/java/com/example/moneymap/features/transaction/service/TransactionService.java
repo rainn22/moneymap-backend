@@ -3,7 +3,10 @@ package com.example.moneymap.features.transaction.service;
 import com.example.moneymap.common.security.CurrentUserService;
 import com.example.moneymap.features.alert.service.AlertService;
 import com.example.moneymap.features.category.entity.Category;
+import com.example.moneymap.features.category.entity.CategoryGroupType;
 import com.example.moneymap.features.category.service.CategoryService;
+import com.example.moneymap.features.saving.entity.SavingGoal;
+import com.example.moneymap.features.saving.repository.SavingGoalRepository;
 import com.example.moneymap.features.transaction.dto.CreateTransactionRequest;
 import com.example.moneymap.features.transaction.dto.TransactionListResponse;
 import com.example.moneymap.features.transaction.dto.TransactionResponse;
@@ -27,25 +30,12 @@ public class TransactionService {
     private final CurrentUserService currentUserService;
     private final AlertService alertService;
     private final CategoryService categoryService;
+    private final SavingGoalRepository savingGoalRepository;
 
     @Transactional
     public TransactionResponse createTransaction(CreateTransactionRequest request) {
         User user = currentUserService.getCurrentUser();
-        Category category = categoryService.getCategoryById(request.getCategoryId());
-
-        Transaction transaction = Transaction.builder()
-                .user(user)
-                .build();
-
-        applyTransactionRequest(transaction, request, category);
-
-        Transaction savedTransaction = transactionRepository.save(transaction);
-
-        if (savedTransaction.getType() == TransactionType.EXPENSE) {
-            alertService.refreshAlertsForExpenseTransaction(savedTransaction);
-        }
-
-        return mapToResponse(savedTransaction);
+        return createTransaction(user, request, true);
     }
 
     @Transactional(readOnly = true)
@@ -88,16 +78,21 @@ public class TransactionService {
         Transaction transaction = transactionRepository.findByIdAndUser(id, user)
                 .orElseThrow(() -> new RuntimeException("Transaction not found"));
         TransactionType previousType = transaction.getType();
-        Long previousCategoryId = transaction.getCategory().getId();
+        Long previousCategoryId = transaction.getCategory() == null ? null : transaction.getCategory().getId();
+        CategoryGroupType previousGroupType = transaction.getCategory() == null ? null : transaction.getCategory().getGroupType();
         java.time.LocalDate previousDate = transaction.getTransactionDate();
-        Category category = categoryService.getCategoryById(request.getCategoryId());
+        Category category = request.getCategoryId() == null ? null : categoryService.getCategoryById(request.getCategoryId());
+        SavingGoal savingGoal = request.getSavingGoalId() == null
+                ? null
+                : savingGoalRepository.findByIdAndUser(request.getSavingGoalId(), user)
+                        .orElseThrow(() -> new RuntimeException("Saving goal not found"));
 
-        applyTransactionRequest(transaction, request, category);
+        applyTransactionRequest(transaction, request, category, savingGoal);
 
         Transaction updatedTransaction = transactionRepository.save(transaction);
 
         if (previousType == TransactionType.EXPENSE) {
-            alertService.refreshAlertsForRemovedExpense(user, previousCategoryId, previousDate);
+            alertService.refreshAlertsForRemovedExpense(user, previousCategoryId, previousGroupType, previousDate);
         }
 
         if (updatedTransaction.getType() == TransactionType.EXPENSE) {
@@ -113,12 +108,13 @@ public class TransactionService {
         Transaction transaction = transactionRepository.findByIdAndUser(id, user)
                 .orElseThrow(() -> new RuntimeException("Transaction not found"));
         TransactionType previousType = transaction.getType();
-        Long previousCategoryId = transaction.getCategory().getId();
+        Long previousCategoryId = transaction.getCategory() == null ? null : transaction.getCategory().getId();
+        CategoryGroupType previousGroupType = transaction.getCategory() == null ? null : transaction.getCategory().getGroupType();
         java.time.LocalDate previousDate = transaction.getTransactionDate();
         transactionRepository.delete(transaction);
 
         if (previousType == TransactionType.EXPENSE) {
-            alertService.refreshAlertsForRemovedExpense(user, previousCategoryId, previousDate);
+            alertService.refreshAlertsForRemovedExpense(user, previousCategoryId, previousGroupType, previousDate);
         }
     }
 
@@ -140,6 +136,23 @@ public class TransactionService {
         return transactionRepository.sumAmountByUserAndTypeAndDateBetween(user, type, startDate, endDate);
     }
 
+    @Transactional
+    public TransactionResponse createSavingTransaction(
+            User user,
+            SavingGoal savingGoal,
+            BigDecimal amount,
+            String description,
+            java.time.LocalDate transactionDate
+    ) {
+        CreateTransactionRequest request = new CreateTransactionRequest();
+        request.setType(TransactionType.SAVING);
+        request.setSavingGoalId(savingGoal.getId());
+        request.setAmount(amount);
+        request.setDescription(description);
+        request.setTransactionDate(transactionDate);
+        return createTransaction(user, request, false);
+    }
+
     private String normalizeSearchPattern(String search) {
         if (search == null || search.isBlank()) {
             return null;
@@ -156,24 +169,74 @@ public class TransactionService {
         }
     }
 
-    private void applyTransactionRequest(Transaction transaction, CreateTransactionRequest request, Category category) {
-        if (category.getType() != request.getType()) {
-            throw new RuntimeException("Category type does not match transaction type");
+    private TransactionResponse createTransaction(User user, CreateTransactionRequest request, boolean refreshAlerts) {
+        Category category = request.getCategoryId() == null ? null : categoryService.getCategoryById(request.getCategoryId());
+        SavingGoal savingGoal = request.getSavingGoalId() == null
+                ? null
+                : savingGoalRepository.findByIdAndUser(request.getSavingGoalId(), user)
+                        .orElseThrow(() -> new RuntimeException("Saving goal not found"));
+
+        Transaction transaction = Transaction.builder()
+                .user(user)
+                .build();
+
+        applyTransactionRequest(transaction, request, category, savingGoal);
+
+        Transaction savedTransaction = transactionRepository.save(transaction);
+
+        if (refreshAlerts && savedTransaction.getType() == TransactionType.EXPENSE) {
+            alertService.refreshAlertsForExpenseTransaction(savedTransaction);
         }
 
+        return mapToResponse(savedTransaction);
+    }
+
+    private void applyTransactionRequest(
+            Transaction transaction,
+            CreateTransactionRequest request,
+            Category category,
+            SavingGoal savingGoal
+    ) {
+        validateTransactionRequest(request, category, savingGoal);
+
         transaction.setCategory(category);
+        transaction.setSavingGoal(savingGoal);
         transaction.setAmount(request.getAmount());
         transaction.setType(request.getType());
         transaction.setDescription(request.getDescription());
         transaction.setTransactionDate(request.getTransactionDate());
     }
 
+    private void validateTransactionRequest(CreateTransactionRequest request, Category category, SavingGoal savingGoal) {
+        if (request.getType() == TransactionType.SAVING) {
+            if (savingGoal == null) {
+                throw new RuntimeException("Saving goal is required for saving transactions");
+            }
+            if (category != null) {
+                throw new RuntimeException("Category is not allowed for saving transactions");
+            }
+            return;
+        }
+
+        if (category == null) {
+            throw new RuntimeException("Category is required");
+        }
+        if (savingGoal != null) {
+            throw new RuntimeException("Saving goal is only supported for saving transactions");
+        }
+        if (category.getType() != request.getType()) {
+            throw new RuntimeException("Category type does not match transaction type");
+        }
+    }
+
     private TransactionResponse mapToResponse(Transaction transaction) {
         return TransactionResponse.builder()
                 .id(transaction.getId())
                 .userId(transaction.getUser().getId())
-                .categoryId(transaction.getCategory().getId())
-                .categoryName(transaction.getCategory().getName())
+                .categoryId(transaction.getCategory() == null ? null : transaction.getCategory().getId())
+                .categoryName(transaction.getCategory() == null ? null : transaction.getCategory().getName())
+                .savingGoalId(transaction.getSavingGoal() == null ? null : transaction.getSavingGoal().getId())
+                .savingGoalTitle(transaction.getSavingGoal() == null ? null : transaction.getSavingGoal().getTitle())
                 .amount(transaction.getAmount())
                 .type(transaction.getType())
                 .description(transaction.getDescription())

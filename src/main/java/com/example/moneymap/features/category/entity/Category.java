@@ -38,6 +38,18 @@ public class Category {
     @Column(nullable = false)
     private TransactionType type;
 
+    @Enumerated(EnumType.STRING)
+    @Column(name = "group_type")
+    private CategoryGroupType groupType;
+
+    @Enumerated(EnumType.STRING)
+    @Column(name = "spending_type")
+    private CategorySpendingType spendingType;
+
+    @ManyToOne
+    @JoinColumn(name = "default_category_id")
+    private Category defaultCategory;
+
     @ManyToOne
     @JoinColumn(name = "user_id")
     private User user;
@@ -49,6 +61,9 @@ public class Category {
     public void prePersist() {
         if (createdAt == null) {
             createdAt = LocalDateTime.now();
+        }
+        if (type == TransactionType.EXPENSE && spendingType == null) {
+            spendingType = CategorySpendingType.VARIABLE;
         }
     }
 }

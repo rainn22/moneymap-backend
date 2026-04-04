@@ -2,6 +2,7 @@ package com.example.moneymap.features.dashboard.service;
 
 import com.example.moneymap.common.security.CurrentUserService;
 import com.example.moneymap.features.alert.service.AlertService;
+import com.example.moneymap.features.budget.entity.BudgetAllocationType;
 import com.example.moneymap.features.budget.entity.Budget;
 import com.example.moneymap.features.budget.entity.BudgetPeriodType;
 import com.example.moneymap.features.budget.repository.BudgetRepository;
@@ -39,6 +40,7 @@ public class DashboardService {
 
         BigDecimal totalMonthlyBudget = budgetRepository.findActiveBudgetsByUserAndDate(user, today).stream()
                 .filter(budget -> budget.getPeriodType() == BudgetPeriodType.MONTHLY)
+                .filter(budget -> budget.getAllocationType() != BudgetAllocationType.SAVINGS)
                 .map(Budget::getAmountLimit)
                 .reduce(BigDecimal.ZERO, BigDecimal::add);
 

@@ -2,6 +2,9 @@ package com.example.moneymap.features.budget.controller;
 
 import com.example.moneymap.common.dto.ApiResponse;
 import com.example.moneymap.features.budget.dto.BudgetResponse;
+import com.example.moneymap.features.budget.dto.BudgetSetupRequest;
+import com.example.moneymap.features.budget.dto.BudgetSetupResponse;
+import com.example.moneymap.features.budget.dto.BudgetSplitSuggestionResponse;
 import com.example.moneymap.features.budget.dto.CreateBudgetRequest;
 import com.example.moneymap.features.budget.service.BudgetService;
 import jakarta.validation.Valid;
@@ -25,6 +28,16 @@ public class BudgetController {
     @PostMapping
     public ApiResponse<BudgetResponse> createBudget(@Valid @RequestBody CreateBudgetRequest request) {
         return ApiResponse.success("Budget created successfully", budgetService.createBudget(request));
+    }
+
+    @PostMapping("/setup/suggestion")
+    public ApiResponse<BudgetSplitSuggestionResponse> suggestBudgetSetup(@Valid @RequestBody BudgetSetupRequest request) {
+        return ApiResponse.success(budgetService.suggestBudgetSetup(request));
+    }
+
+    @PostMapping("/setup")
+    public ApiResponse<BudgetSetupResponse> saveBudgetSetup(@Valid @RequestBody BudgetSetupRequest request) {
+        return ApiResponse.success("Budget setup saved successfully", budgetService.saveBudgetSetup(request));
     }
 
     @GetMapping

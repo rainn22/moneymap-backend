@@ -1,6 +1,8 @@
 package com.example.moneymap.features.budget.entity;
 
 import com.example.moneymap.features.category.entity.Category;
+import com.example.moneymap.features.category.entity.CategoryGroupType;
+import com.example.moneymap.features.saving.entity.SavingGoal;
 import com.example.moneymap.features.user.entity.User;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
@@ -41,12 +43,27 @@ public class Budget {
     @JoinColumn(name = "category_id")
     private Category category;
 
+    @ManyToOne
+    @JoinColumn(name = "saving_goal_id")
+    private SavingGoal savingGoal;
+
+    @Enumerated(EnumType.STRING)
+    @Column(nullable = false)
+    private BudgetAllocationType allocationType;
+
+    @Enumerated(EnumType.STRING)
+    @Column(name = "group_type")
+    private CategoryGroupType groupType;
+
     @Enumerated(EnumType.STRING)
     @Column(nullable = false)
     private BudgetPeriodType periodType;
 
     @Column(nullable = false, precision = 19, scale = 2)
     private BigDecimal amountLimit;
+
+    @Column(precision = 5, scale = 2)
+    private BigDecimal percentage;
 
     @Column(nullable = false)
     private LocalDate startDate;
@@ -61,6 +78,9 @@ public class Budget {
     public void prePersist() {
         if (createdAt == null) {
             createdAt = LocalDateTime.now();
+        }
+        if (allocationType == null) {
+            allocationType = BudgetAllocationType.CATEGORY;
         }
     }
 }

@@ -10,6 +10,7 @@ import java.util.List;
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -26,12 +27,20 @@ public class CategoryController {
 
     @PostMapping
     public ApiResponse<CategoryResponse> createCategory(@Valid @RequestBody CreateCategoryRequest request) {
-        return ApiResponse.success("Category created successfully", categoryService.createCategory(request));
+        return ApiResponse.success("Category created successfully", categoryService.createPersonalCategory(request));
     }
 
     @GetMapping
     public ApiResponse<List<CategoryResponse>> getCategories(@RequestParam(required = false) TransactionType type) {
         return ApiResponse.success(categoryService.getCategories(type));
+    }
+
+    @PatchMapping("/{id}")
+    public ApiResponse<CategoryResponse> updateCategory(
+            @PathVariable Long id,
+            @Valid @RequestBody CreateCategoryRequest request
+    ) {
+        return ApiResponse.success("Category updated successfully", categoryService.updateCategory(id, request));
     }
 
     @DeleteMapping("/{id}")

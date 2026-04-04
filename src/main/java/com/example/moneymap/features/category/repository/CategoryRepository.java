@@ -31,6 +31,40 @@ public interface CategoryRepository extends JpaRepository<Category, Long> {
     @Query("""
             select c
             from Category c
+            where c.user is null
+            order by c.name asc
+            """)
+    List<Category> findSharedCategories();
+
+    @Query("""
+            select c
+            from Category c
+            where c.user = :user
+            order by c.name asc
+            """)
+    List<Category> findByUserOrderByNameAsc(@Param("user") User user);
+
+    @Query("""
+            select c
+            from Category c
+            where c.user = :user
+              and c.defaultCategory.id = :defaultCategoryId
+            """)
+    Optional<Category> findOverrideByUserAndDefaultCategoryId(
+            @Param("user") User user,
+            @Param("defaultCategoryId") Long defaultCategoryId
+    );
+
+    @Query("""
+            select c
+            from Category c
+            where c.defaultCategory.id = :defaultCategoryId
+            """)
+    List<Category> findByDefaultCategoryId(@Param("defaultCategoryId") Long defaultCategoryId);
+
+    @Query("""
+            select c
+            from Category c
             where lower(c.name) = lower(:name)
               and c.user is null
             """)
@@ -51,4 +85,12 @@ public interface CategoryRepository extends JpaRepository<Category, Long> {
               and (c.user is null or c.user = :user)
             """)
     Optional<Category> findAccessibleById(@Param("id") Long id, @Param("user") User user);
+
+    @Query("""
+            select c
+            from Category c
+            where c.id = :id
+              and c.user is null
+            """)
+    Optional<Category> findSharedById(@Param("id") Long id);
 }

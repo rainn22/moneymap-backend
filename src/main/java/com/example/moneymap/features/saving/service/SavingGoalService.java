@@ -7,9 +7,11 @@ import com.example.moneymap.features.saving.dto.CreateSavingGoalRequest;
 import com.example.moneymap.features.saving.entity.SavingGoal;
 import com.example.moneymap.features.saving.entity.SavingGoalStatus;
 import com.example.moneymap.features.saving.repository.SavingGoalRepository;
+import com.example.moneymap.features.transaction.service.TransactionService;
 import com.example.moneymap.features.user.entity.User;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
+import java.time.LocalDate;
 import java.util.List;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
@@ -20,6 +22,7 @@ import org.springframework.transaction.annotation.Transactional;
 public class SavingGoalService {
 
     private final SavingGoalRepository savingGoalRepository;
+    private final TransactionService transactionService;
     private final CurrentUserService currentUserService;
 
     @Transactional
@@ -55,6 +58,7 @@ public class SavingGoalService {
 
         goal.setCurrentAmount(goal.getCurrentAmount().add(request.getAmount()));
         goal.setStatus(determineStatus(goal.getCurrentAmount(), goal.getTargetAmount()));
+        createSavingContributionTransaction(user, goal, request);
 
         return mapToResponse(savingGoalRepository.save(goal));
     }
@@ -70,6 +74,19 @@ public class SavingGoalService {
     @Transactional(readOnly = true)
     public List<SavingGoal> getGoalsForUser(User user) {
         return savingGoalRepository.findByUserOrderByDeadlineAsc(user);
+    }
+
+    private void createSavingContributionTransaction(User user, SavingGoal goal, AddMoneyRequest request) {
+        String description = request.getDescription();
+        if (description == null || description.isBlank()) {
+            description = "Savings contribution: " + goal.getTitle();
+        }
+
+        LocalDate transactionDate = request.getTransactionDate() == null
+                ? LocalDate.now()
+                : request.getTransactionDate();
+
+        transactionService.createSavingTransaction(user, goal, request.getAmount(), description, transactionDate);
     }
 
     private SavingGoalStatus determineStatus(BigDecimal currentAmount, BigDecimal targetAmount) {

@@ -1,6 +1,7 @@
 package com.example.moneymap.features.transaction.entity;
 
 import com.example.moneymap.features.category.entity.Category;
+import com.example.moneymap.features.saving.entity.SavingGoal;
 import com.example.moneymap.features.user.entity.User;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
@@ -37,9 +38,13 @@ public class Transaction {
     @JoinColumn(name = "user_id", nullable = false)
     private User user;
 
-    @ManyToOne(optional = false)
-    @JoinColumn(name = "category_id", nullable = false)
+    @ManyToOne
+    @JoinColumn(name = "category_id")
     private Category category;
+
+    @ManyToOne
+    @JoinColumn(name = "saving_goal_id")
+    private SavingGoal savingGoal;
 
     @Column(nullable = false, precision = 19, scale = 2)
     private BigDecimal amount;

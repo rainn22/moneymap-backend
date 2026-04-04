@@ -3,7 +3,6 @@ package com.example.moneymap.features.admin.service;
 import com.example.moneymap.features.admin.dto.AdminAlertResponse;
 import com.example.moneymap.features.admin.dto.AdminDashboardResponse;
 import com.example.moneymap.features.admin.dto.AdminUserResponse;
-import com.example.moneymap.features.admin.dto.AdminUserSpendingResponse;
 import com.example.moneymap.features.alert.repository.AlertRepository;
 import com.example.moneymap.features.budget.repository.BudgetRepository;
 import com.example.moneymap.features.saving.repository.SavingGoalRepository;
@@ -73,9 +72,14 @@ public class AdminService {
         return mapUser(userRepository.save(user));
     }
 
-    @Transactional(readOnly = true)
-    public List<AdminUserSpendingResponse> getUserSpendingSummaries(Long userId, Long categoryId) {
-        return transactionRepository.findSpendingSummariesForAdmin(userId, categoryId);
+    @Transactional
+    public AdminUserResponse reactivateUser(Long id) {
+        User user = findUser(id);
+        if (user.getRole() == Role.ADMIN) {
+            throw new RuntimeException("Admin user cannot be reactivated");
+        }
+        user.setEnabled(true);
+        return mapUser(userRepository.save(user));
     }
 
     @Transactional(readOnly = true)

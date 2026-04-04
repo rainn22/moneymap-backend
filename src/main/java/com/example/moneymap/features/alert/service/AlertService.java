@@ -6,20 +6,23 @@ import com.example.moneymap.features.alert.entity.Alert;
 import com.example.moneymap.features.alert.entity.AlertType;
 import com.example.moneymap.features.alert.repository.AlertRepository;
 import com.example.moneymap.features.auth.service.EmailService;
+import com.example.moneymap.features.budget.entity.BudgetAllocationType;
 import com.example.moneymap.features.budget.entity.Budget;
 import com.example.moneymap.features.budget.entity.BudgetPeriodType;
 import com.example.moneymap.features.budget.repository.BudgetRepository;
+import com.example.moneymap.features.category.entity.CategoryGroupType;
+import com.example.moneymap.features.category.entity.CategorySpendingType;
 import com.example.moneymap.features.transaction.entity.Transaction;
 import com.example.moneymap.features.transaction.entity.TransactionType;
 import com.example.moneymap.features.transaction.repository.TransactionRepository;
 import com.example.moneymap.features.user.entity.User;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
-import java.time.DayOfWeek;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.temporal.ChronoUnit;
 import java.util.List;
+import java.util.Set;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -28,7 +31,8 @@ import org.springframework.transaction.annotation.Transactional;
 @RequiredArgsConstructor
 public class AlertService {
 
-    private static final List<Integer> ALERT_THRESHOLDS = List.of(80, 90, 100);
+    private static final List<Integer> DAILY_VARIABLE_ALERT_THRESHOLDS = List.of(50, 80, 90, 100);
+    private static final List<Integer> MONTHLY_ALERT_THRESHOLDS = List.of(50, 80, 90);
 
     private final AlertRepository alertRepository;
     private final BudgetRepository budgetRepository;
@@ -62,73 +66,140 @@ public class AlertService {
         refreshAlertsForDate(
                 transaction.getUser(),
                 transaction.getCategory().getId(),
+                transaction.getCategory().getGroupType(),
                 transaction.getTransactionDate(),
                 true
         );
     }
 
     @Transactional
-    public void refreshAlertsForDate(User user, Long categoryId, LocalDate referenceDate, boolean sendNotifications) {
-        refreshAlertsForDateInternal(user, categoryId, referenceDate, sendNotifications);
+    public void refreshAlertsForDate(
+            User user,
+            Long categoryId,
+            CategoryGroupType groupType,
+            LocalDate referenceDate,
+            boolean sendNotifications
+    ) {
+        refreshAlertsForDateInternal(user, categoryId, groupType, referenceDate, sendNotifications);
     }
 
     @Transactional
-    public void refreshAlertsForRemovedExpense(User user, Long categoryId, LocalDate referenceDate) {
-        refreshAlertsForDateInternal(user, categoryId, referenceDate, false);
+    public void refreshAlertsForRemovedExpense(
+            User user,
+            Long categoryId,
+            CategoryGroupType groupType,
+            LocalDate referenceDate
+    ) {
+        refreshAlertsForDateInternal(user, categoryId, groupType, referenceDate, false);
     }
 
-    private void refreshAlertsForDateInternal(User user, Long categoryId, LocalDate referenceDate, boolean sendNotifications) {
+    private void refreshAlertsForDateInternal(
+            User user,
+            Long categoryId,
+            CategoryGroupType groupType,
+            LocalDate referenceDate,
+            boolean sendNotifications
+    ) {
         List<Budget> budgets = budgetRepository.findActiveBudgetsByUserAndDate(
                 user,
                 referenceDate
         );
 
         for (Budget budget : budgets) {
-            if (!matchesCategory(budget, categoryId)) {
+            if (!isExpenseBudget(budget) || !matchesAllocation(budget, categoryId, groupType)) {
                 continue;
             }
 
-            AlertEvaluation evaluation = resolveAlertEvaluation(budget, referenceDate);
+            refreshMonthlyAlerts(user, budget, referenceDate, sendNotifications);
+        }
+
+        refreshDerivedDailyAlerts(user, budgets, referenceDate, sendNotifications);
+    }
+
+    private void refreshMonthlyAlerts(User user, Budget budget, LocalDate referenceDate, boolean sendNotifications) {
+        AlertEvaluation evaluation = resolveMonthlyEvaluation(budget, referenceDate);
+        if (evaluation == null) {
+            return;
+        }
+
+        alertRepository.deleteByBudgetAndPeriodStartAndPeriodEnd(
+                budget,
+                evaluation.periodStart().atStartOfDay(),
+                evaluation.periodEnd().atTime(23, 59, 59)
+        );
+
+        BigDecimal spentAmount = sumMonthlySpentAmount(budget, evaluation.periodStart(), evaluation.periodEnd());
+        saveThresholdAlerts(
+                user,
+                budget,
+                evaluation,
+                spentAmount,
+                MONTHLY_ALERT_THRESHOLDS,
+                sendNotifications
+        );
+    }
+
+    private void refreshDerivedDailyAlerts(User user, List<Budget> budgets, LocalDate referenceDate, boolean sendNotifications) {
+        DailyTrackingSelection selection = resolveDailyTrackingSelection(budgets);
+        if (selection.anchorBudget() == null) {
+            return;
+        }
+
+        for (Budget trackedBudget : selection.trackedBudgets()) {
             alertRepository.deleteByBudgetAndPeriodStartAndPeriodEnd(
-                    budget,
-                    evaluation.periodStart().atStartOfDay(),
-                    evaluation.periodEnd().atTime(23, 59, 59)
+                    trackedBudget,
+                    referenceDate.atStartOfDay(),
+                    referenceDate.atTime(23, 59, 59)
             );
+        }
 
-            BigDecimal spentAmount = transactionRepository.sumExpenseForBudgetPeriod(
-                    budget.getUser(),
-                    budget.getCategory() == null ? null : budget.getCategory().getId(),
-                    evaluation.periodStart(),
-                    evaluation.periodEnd()
-            );
+        AlertEvaluation evaluation = resolveDailyVariableEvaluation(selection, referenceDate);
+        if (evaluation == null) {
+            return;
+        }
 
-            if (spentAmount.compareTo(BigDecimal.ZERO) <= 0) {
-                continue;
-            }
+        BigDecimal spentAmount = sumDailyTrackedAmount(user, selection, referenceDate);
+        saveThresholdAlerts(
+                user,
+                selection.anchorBudget(),
+                evaluation,
+                spentAmount,
+                DAILY_VARIABLE_ALERT_THRESHOLDS,
+                sendNotifications
+        );
+    }
 
-            BigDecimal usagePercent = spentAmount
-                    .multiply(BigDecimal.valueOf(100))
-                    .divide(evaluation.limitAmount(), 2, RoundingMode.HALF_UP);
+    private void saveThresholdAlerts(
+            User user,
+            Budget budget,
+            AlertEvaluation evaluation,
+            BigDecimal spentAmount,
+            List<Integer> thresholds,
+            boolean sendNotifications
+    ) {
+        if (spentAmount.compareTo(BigDecimal.ZERO) <= 0) {
+            return;
+        }
 
-            for (Integer threshold : ALERT_THRESHOLDS) {
-                if (usagePercent.compareTo(BigDecimal.valueOf(threshold)) >= 0) {
-                    Alert savedAlert = alertRepository.save(Alert.builder()
-                            .user(user)
-                            .budget(budget)
-                            .alertType(evaluation.alertType())
-                            .message(buildAlertMessage(budget, evaluation, threshold, spentAmount))
-                            .thresholdPercent(threshold)
-                            .periodStart(evaluation.periodStart().atStartOfDay())
-                            .periodEnd(evaluation.periodEnd().atTime(23, 59, 59))
-                            .isRead(false)
-                            .build());
+        BigDecimal usagePercent = resolveUsagePercent(spentAmount, evaluation.limitAmount());
+        for (Integer threshold : thresholds) {
+            if (usagePercent.compareTo(BigDecimal.valueOf(threshold)) >= 0) {
+                Alert savedAlert = alertRepository.save(Alert.builder()
+                        .user(user)
+                        .budget(budget)
+                        .alertType(evaluation.alertType())
+                        .message(buildAlertMessage(budget, evaluation, threshold, spentAmount))
+                        .thresholdPercent(threshold)
+                        .periodStart(evaluation.periodStart().atStartOfDay())
+                        .periodEnd(evaluation.periodEnd().atTime(23, 59, 59))
+                        .isRead(false)
+                        .build());
 
-                    if (sendNotifications && threshold >= 100) {
-                        emailService.sendBudgetExceededAlert(
-                                savedAlert.getUser().getEmail(),
-                                savedAlert.getMessage()
-                        );
-                    }
+                if (sendNotifications && shouldSendEmailNotification(evaluation)) {
+                    emailService.sendBudgetExceededAlert(
+                            savedAlert.getUser().getEmail(),
+                            savedAlert.getMessage()
+                    );
                 }
             }
         }
@@ -139,41 +210,75 @@ public class AlertService {
         return alertRepository.countByUserAndIsReadFalse(user);
     }
 
-    private boolean matchesCategory(Budget budget, Long categoryId) {
+    private boolean isExpenseBudget(Budget budget) {
+        if (budget.getAllocationType() == BudgetAllocationType.SAVINGS) {
+            return false;
+        }
+        return budget.getCategory() == null || budget.getCategory().getType() == TransactionType.EXPENSE;
+    }
+
+    private boolean supportsDailyVariableTracking(Budget budget) {
+        if (budget.getPeriodType() != BudgetPeriodType.MONTHLY || budget.getAllocationType() == BudgetAllocationType.SAVINGS) {
+            return false;
+        }
+        if (budget.getAllocationType() == BudgetAllocationType.GROUP) {
+            return true;
+        }
+        return budget.getCategory() != null && budget.getCategory().getSpendingType() == CategorySpendingType.VARIABLE;
+    }
+
+    private boolean matchesAllocation(Budget budget, Long categoryId, CategoryGroupType groupType) {
+        if (budget.getAllocationType() == BudgetAllocationType.GROUP) {
+            return budget.getGroupType() == groupType;
+        }
         if (budget.getCategory() == null) {
             return true;
         }
         return budget.getCategory().getId().equals(categoryId);
     }
 
-    private AlertEvaluation resolveAlertEvaluation(Budget budget, LocalDate referenceDate) {
-        if (budget.getPeriodType() == BudgetPeriodType.MONTHLY) {
-            long activeDays = ChronoUnit.DAYS.between(budget.getStartDate(), budget.getEndDate()) + 1;
-            BigDecimal dailyLimit = budget.getAmountLimit()
-                    .divide(BigDecimal.valueOf(activeDays), 2, RoundingMode.HALF_UP);
-            return new AlertEvaluation(referenceDate, referenceDate, dailyLimit, AlertType.DAILY);
+    private AlertEvaluation resolveMonthlyEvaluation(Budget budget, LocalDate referenceDate) {
+        if (budget.getPeriodType() != BudgetPeriodType.MONTHLY) {
+            LocalDate periodStart = budget.getPeriodType() == BudgetPeriodType.DAILY ? referenceDate : referenceDate.minusDays(referenceDate.getDayOfWeek().getValue() - 1L);
+            LocalDate periodEnd = budget.getPeriodType() == BudgetPeriodType.DAILY ? referenceDate : periodStart.plusDays(6);
+            LocalDate rangeStart = periodStart.isBefore(budget.getStartDate()) ? budget.getStartDate() : periodStart;
+            LocalDate rangeEnd = periodEnd.isAfter(budget.getEndDate()) ? budget.getEndDate() : periodEnd;
+            AlertType alertType = budget.getPeriodType() == BudgetPeriodType.DAILY ? AlertType.DAILY : AlertType.WEEKLY;
+            return new AlertEvaluation(rangeStart, rangeEnd, budget.getAmountLimit(), alertType, TrackingMode.DIRECT);
         }
 
-        LocalDate periodStart = switch (budget.getPeriodType()) {
-            case DAILY -> referenceDate;
-            case WEEKLY -> referenceDate.with(DayOfWeek.MONDAY);
-            case MONTHLY -> throw new IllegalStateException("Monthly budget should be resolved as daily alerts");
-        };
+        LocalDate monthStart = referenceDate.withDayOfMonth(1);
+        LocalDate monthEnd = referenceDate.withDayOfMonth(referenceDate.lengthOfMonth());
+        LocalDate rangeStart = monthStart.isBefore(budget.getStartDate()) ? budget.getStartDate() : monthStart;
+        LocalDate rangeEnd = monthEnd.isAfter(budget.getEndDate()) ? budget.getEndDate() : monthEnd;
+        return new AlertEvaluation(rangeStart, rangeEnd, budget.getAmountLimit(), AlertType.MONTHLY, TrackingMode.MONTHLY);
+    }
 
-        LocalDate periodEnd = switch (budget.getPeriodType()) {
-            case DAILY -> referenceDate;
-            case WEEKLY -> referenceDate.with(DayOfWeek.SUNDAY);
-            case MONTHLY -> throw new IllegalStateException("Monthly budget should be resolved as daily alerts");
-        };
+    private AlertEvaluation resolveDailyVariableEvaluation(DailyTrackingSelection selection, LocalDate referenceDate) {
+        Budget anchorBudget = selection.anchorBudget();
+        if (anchorBudget == null || referenceDate.isBefore(anchorBudget.getStartDate()) || referenceDate.isAfter(anchorBudget.getEndDate())) {
+            return null;
+        }
 
-        LocalDate rangeStart = periodStart.isBefore(budget.getStartDate()) ? budget.getStartDate() : periodStart;
-        LocalDate rangeEnd = periodEnd.isAfter(budget.getEndDate()) ? budget.getEndDate() : periodEnd;
-        AlertType alertType = switch (budget.getPeriodType()) {
-            case DAILY -> AlertType.DAILY;
-            case WEEKLY -> AlertType.WEEKLY;
-            case MONTHLY -> throw new IllegalStateException("Monthly budget should be resolved as daily alerts");
-        };
-        return new AlertEvaluation(rangeStart, rangeEnd, budget.getAmountLimit(), alertType);
+        BigDecimal spentBeforeToday = sumDailyTrackingSpent(
+                anchorBudget.getUser(),
+                selection,
+                anchorBudget.getStartDate(),
+                referenceDate.minusDays(1)
+        );
+        BigDecimal remainingAmount = selection.totalAmountLimit()
+                .subtract(spentBeforeToday)
+                .max(BigDecimal.ZERO);
+        long remainingDays = ChronoUnit.DAYS.between(referenceDate, anchorBudget.getEndDate()) + 1;
+        if (remainingDays <= 0) {
+            return null;
+        }
+
+        BigDecimal dailyLimit = remainingAmount.compareTo(BigDecimal.ZERO) <= 0
+                ? BigDecimal.ZERO
+                : remainingAmount.divide(BigDecimal.valueOf(remainingDays), 2, RoundingMode.HALF_UP);
+
+        return new AlertEvaluation(referenceDate, referenceDate, dailyLimit, AlertType.DAILY, TrackingMode.DAILY_VARIABLE);
     }
 
     private String buildAlertMessage(
@@ -182,11 +287,18 @@ public class AlertService {
             Integer threshold,
             BigDecimal spentAmount
     ) {
-        String categoryText = budget.getCategory() == null ? "overall" : budget.getCategory().getName();
-        if (budget.getPeriodType() == BudgetPeriodType.MONTHLY) {
-            return "You have reached " + threshold + "% of your daily "
+        if (evaluation.trackingMode() == TrackingMode.DAILY_VARIABLE) {
+            return "You have reached " + threshold + "% of your daily spending limit. Spent today: "
+                    + spentAmount
+                    + " of "
+                    + evaluation.limitAmount();
+        }
+
+        String categoryText = resolveBudgetLabel(budget);
+        if (evaluation.trackingMode() == TrackingMode.MONTHLY) {
+            return "You have reached " + threshold + "% of your monthly "
                     + categoryText
-                    + " budget allowance from your monthly budget. Spent today: "
+                    + " budget. Spent: "
                     + spentAmount
                     + " of "
                     + evaluation.limitAmount();
@@ -196,6 +308,16 @@ public class AlertService {
                 + categoryText + " "
                 + budget.getPeriodType().name().toLowerCase()
                 + " budget. Spent: " + spentAmount;
+    }
+
+    private String resolveBudgetLabel(Budget budget) {
+        if (budget.getAllocationType() == BudgetAllocationType.GROUP && budget.getGroupType() != null) {
+            return budget.getGroupType().name().toLowerCase();
+        }
+        if (budget.getAllocationType() == BudgetAllocationType.SAVINGS) {
+            return budget.getSavingGoal() == null ? "savings" : budget.getSavingGoal().getTitle();
+        }
+        return budget.getCategory() == null ? "overall" : budget.getCategory().getName();
     }
 
     private AlertResponse mapToResponse(Alert alert) {
@@ -210,11 +332,126 @@ public class AlertService {
                 .build();
     }
 
+    private BigDecimal sumMonthlySpentAmount(Budget budget, LocalDate startDate, LocalDate endDate) {
+        if (budget.getAllocationType() == BudgetAllocationType.GROUP) {
+            return transactionRepository.sumExpenseForBudgetPeriodByGroupType(
+                    budget.getUser(),
+                    budget.getGroupType(),
+                    startDate,
+                    endDate
+            );
+        }
+        return transactionRepository.sumExpenseForBudgetPeriod(
+                budget.getUser(),
+                budget.getCategory() == null ? null : budget.getCategory().getId(),
+                startDate,
+                endDate
+        );
+    }
+
+    private BigDecimal sumDailyTrackedAmount(User user, DailyTrackingSelection selection, LocalDate referenceDate) {
+        return sumDailyTrackingSpent(user, selection, referenceDate, referenceDate);
+    }
+
+    private BigDecimal sumDailyTrackingSpent(User user, DailyTrackingSelection selection, LocalDate startDate, LocalDate endDate) {
+        if (endDate.isBefore(startDate)) {
+            return BigDecimal.ZERO;
+        }
+        if (selection.usesGroupBudgets()) {
+            return transactionRepository.sumExpenseForBudgetPeriodByGroupTypesAndSpendingType(
+                    user,
+                    selection.groupTypes(),
+                    CategorySpendingType.VARIABLE,
+                    startDate,
+                    endDate
+            );
+        }
+        if (!selection.categoryIds().isEmpty()) {
+            return transactionRepository.sumExpenseForBudgetPeriodByCategoryIds(
+                user,
+                selection.categoryIds(),
+                startDate,
+                endDate
+            );
+        }
+        return BigDecimal.ZERO;
+    }
+
+    private BigDecimal resolveUsagePercent(BigDecimal spentAmount, BigDecimal limitAmount) {
+        if (limitAmount.compareTo(BigDecimal.ZERO) <= 0) {
+            return spentAmount.compareTo(BigDecimal.ZERO) > 0 ? BigDecimal.valueOf(100) : BigDecimal.ZERO;
+        }
+        return spentAmount
+                .multiply(BigDecimal.valueOf(100))
+                .divide(limitAmount, 2, RoundingMode.HALF_UP);
+    }
+
+    private boolean shouldSendEmailNotification(AlertEvaluation evaluation) {
+        return evaluation.trackingMode() == TrackingMode.MONTHLY;
+    }
+
+    private DailyTrackingSelection resolveDailyTrackingSelection(List<Budget> budgets) {
+        List<Budget> groupBudgets = budgets.stream()
+                .filter(this::supportsDailyVariableTracking)
+                .filter(budget -> budget.getAllocationType() == BudgetAllocationType.GROUP)
+                .toList();
+        if (!groupBudgets.isEmpty()) {
+            Budget anchorBudget = groupBudgets.get(0);
+            return new DailyTrackingSelection(
+                    groupBudgets,
+                    anchorBudget,
+                    groupBudgets.stream()
+                            .map(Budget::getAmountLimit)
+                            .reduce(BigDecimal.ZERO, BigDecimal::add)
+                            .setScale(2, RoundingMode.HALF_UP),
+                    true,
+                    groupBudgets.stream().map(Budget::getGroupType).collect(java.util.stream.Collectors.toSet()),
+                    Set.of()
+            );
+        }
+
+        List<Budget> variableCategoryBudgets = budgets.stream()
+                .filter(this::supportsDailyVariableTracking)
+                .filter(budget -> budget.getAllocationType() == BudgetAllocationType.CATEGORY)
+                .toList();
+        Budget anchorBudget = variableCategoryBudgets.isEmpty() ? null : variableCategoryBudgets.get(0);
+        return new DailyTrackingSelection(
+                variableCategoryBudgets,
+                anchorBudget,
+                variableCategoryBudgets.stream()
+                        .map(Budget::getAmountLimit)
+                        .reduce(BigDecimal.ZERO, BigDecimal::add)
+                        .setScale(2, RoundingMode.HALF_UP),
+                false,
+                Set.of(),
+                variableCategoryBudgets.stream()
+                        .map(budget -> budget.getCategory().getId())
+                        .collect(java.util.stream.Collectors.toSet())
+        );
+    }
+
     private record AlertEvaluation(
             LocalDate periodStart,
             LocalDate periodEnd,
             BigDecimal limitAmount,
-            AlertType alertType
+            AlertType alertType,
+            TrackingMode trackingMode
     ) {
+    }
+
+    private record DailyTrackingSelection(
+            List<Budget> trackedBudgets,
+            Budget anchorBudget,
+            BigDecimal totalAmountLimit,
+            boolean usesGroupBudgets,
+            Set<CategoryGroupType> groupTypes,
+            Set<Long> categoryIds
+    ) {
+    }
+
+    private enum TrackingMode {
+        DIRECT,
+        MONTHLY,
+        DAILY_VARIABLE
     }
 }

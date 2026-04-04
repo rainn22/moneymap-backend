@@ -28,6 +28,8 @@ import com.example.moneymap.features.auth.repository.RevokedTokenRepository;
 import com.example.moneymap.features.auth.repository.VerificationTokenRepository;
 import com.example.moneymap.features.budget.repository.BudgetRepository;
 import com.example.moneymap.features.category.entity.Category;
+import com.example.moneymap.features.category.entity.CategoryGroupType;
+import com.example.moneymap.features.category.entity.CategorySpendingType;
 import com.example.moneymap.features.category.repository.CategoryRepository;
 import com.example.moneymap.features.saving.repository.SavingGoalRepository;
 import com.example.moneymap.features.transaction.entity.TransactionType;
@@ -298,7 +300,7 @@ class ApiEndpointIntegrationTests {
         MvcResult alertsResult = mockMvc.perform(get("/api/alerts")
                         .header(HttpHeaders.AUTHORIZATION, bearer(userToken)))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.data.length()").value(3))
+                .andExpect(jsonPath("$.data.length()").value(6))
                 .andExpect(jsonPath("$.data[0].thresholdPercent").value(100))
                 .andExpect(jsonPath("$.data[0].alertType").value("DAILY"))
                 .andReturn();
@@ -315,7 +317,7 @@ class ApiEndpointIntegrationTests {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.totalExpense").value(260))
                 .andExpect(jsonPath("$.data.remainingMonthlyBudget").value(40))
-                .andExpect(jsonPath("$.data.unreadAlertsCount").value(2))
+                .andExpect(jsonPath("$.data.unreadAlertsCount").value(5))
                 .andExpect(jsonPath("$.data.lastFiveTransactions[0].description").value("Food expense updated"));
 
         MvcResult savingGoalResult = mockMvc.perform(post("/api/saving-goals")
@@ -345,11 +347,40 @@ class ApiEndpointIntegrationTests {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 {
-                                  "amount": 100
+                                  "amount": 100,
+                                  "description": "Added to vacation savings",
+                                  "transactionDate": "2026-04-22"
                                 }
                                 """))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.currentAmount").value(400));
+
+        mockMvc.perform(get("/api/transactions")
+                        .header(HttpHeaders.AUTHORIZATION, bearer(userToken)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.items[0].type").value("SAVING"))
+                .andExpect(jsonPath("$.data.items[0].savingGoalId").value(Long.parseLong(savingGoalId)))
+                .andExpect(jsonPath("$.data.items[0].savingGoalTitle").value("Vacation Fund"))
+                .andExpect(jsonPath("$.data.items[0].categoryId").isEmpty())
+                .andExpect(jsonPath("$.data.items[0].categoryName").isEmpty())
+                .andExpect(jsonPath("$.data.items[0].amount").value(100))
+                .andExpect(jsonPath("$.data.items[0].description").value("Added to vacation savings"))
+                .andExpect(jsonPath("$.data.items[0].transactionDate").value("2026-04-22"));
+
+        mockMvc.perform(get("/api/transactions")
+                        .param("type", "SAVING")
+                        .header(HttpHeaders.AUTHORIZATION, bearer(userToken)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.items.length()").value(1))
+                .andExpect(jsonPath("$.data.items[0].type").value("SAVING"))
+                .andExpect(jsonPath("$.data.items[0].savingGoalId").value(Long.parseLong(savingGoalId)));
+
+        mockMvc.perform(get("/api/dashboard")
+                        .header(HttpHeaders.AUTHORIZATION, bearer(userToken)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.totalExpense").value(260))
+                .andExpect(jsonPath("$.data.lastFiveTransactions[0].type").value("SAVING"))
+                .andExpect(jsonPath("$.data.lastFiveTransactions[0].savingGoalId").value(Long.parseLong(savingGoalId)));
 
         mockMvc.perform(delete("/api/saving-goals/{id}", savingGoalId)
                         .header(HttpHeaders.AUTHORIZATION, bearer(userToken)))
@@ -360,6 +391,149 @@ class ApiEndpointIntegrationTests {
                         .header(HttpHeaders.AUTHORIZATION, bearer(userToken)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.success").value(true));
+    }
+
+    @Test
+    void budgetSetup_shouldSupportRuleBasedSplitCategoryPercentagesAndGroupAlerts() throws Exception {
+        seedVerifiedUser("demo_user", "demo_user@example.com", "Password123", Role.USER);
+        Category rentCategory = seedCategory("Rent", TransactionType.EXPENSE, CategoryGroupType.NEEDS, CategorySpendingType.FIXED);
+        Category foodCategory = seedCategory("Food", TransactionType.EXPENSE, CategoryGroupType.NEEDS, CategorySpendingType.VARIABLE);
+        Category funCategory = seedCategory("Fun", TransactionType.EXPENSE, CategoryGroupType.WANTS, CategorySpendingType.VARIABLE);
+
+        String userToken = loginAndGetAccessToken("demo_user@example.com", "Password123");
+
+        MvcResult savingGoalResult = mockMvc.perform(post("/api/saving-goals")
+                        .header(HttpHeaders.AUTHORIZATION, bearer(userToken))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "title": "Emergency Fund",
+                                  "targetAmount": 5000,
+                                  "currentAmount": 500,
+                                  "deadline": "2026-12-31"
+                                }
+                                """))
+                .andExpect(status().isOk())
+                .andReturn();
+
+        String savingGoalId = readPath(savingGoalResult, "data", "id");
+
+        mockMvc.perform(post("/api/budgets/setup/suggestion")
+                        .header(HttpHeaders.AUTHORIZATION, bearer(userToken))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "estimatedMonthlyIncome": 1000,
+                                  "periodType": "MONTHLY",
+                                  "startDate": "2026-04-01",
+                                  "endDate": "2026-04-30"
+                                }
+                                """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.totalPercentage").value(100))
+                .andExpect(jsonPath("$.data.totalAllocatedAmount").value(1000))
+                .andExpect(jsonPath("$.data.budgets[0].groupType").value("NEEDS"))
+                .andExpect(jsonPath("$.data.budgets[0].dailyRecommendedAmount").value(26.67))
+                .andExpect(jsonPath("$.data.budgets[0].weeklyRecommendedAmount").value(186.69))
+                .andExpect(jsonPath("$.data.budgets[1].groupType").value("WANTS"))
+                .andExpect(jsonPath("$.data.budgets[2].allocationType").value("SAVINGS"));
+
+        mockMvc.perform(post("/api/budgets/setup")
+                        .header(HttpHeaders.AUTHORIZATION, bearer(userToken))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "estimatedMonthlyIncome": 1000,
+                                  "periodType": "MONTHLY",
+                                  "startDate": "2026-04-01",
+                                  "endDate": "2026-04-30",
+                                  "allocations": [
+                                    {
+                                      "allocationType": "GROUP",
+                                      "groupType": "NEEDS",
+                                      "percentage": 50
+                                    },
+                                    {
+                                      "allocationType": "GROUP",
+                                      "groupType": "WANTS",
+                                      "amountLimit": 250
+                                    },
+                                    {
+                                      "allocationType": "SAVINGS",
+                                      "savingGoalId": %s,
+                                      "percentage": 20
+                                    }
+                                  ]
+                                }
+                                """.formatted(savingGoalId)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.totalPercentage").value(95))
+                .andExpect(jsonPath("$.data.totalAllocatedAmount").value(950))
+                .andExpect(jsonPath("$.data.budgets[2].savingGoalId").value(Long.parseLong(savingGoalId)))
+                .andExpect(jsonPath("$.data.budgets[2].savingGoalTitle").value("Emergency Fund"));
+
+        mockMvc.perform(post("/api/budgets")
+                        .header(HttpHeaders.AUTHORIZATION, bearer(userToken))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "categoryId": %d,
+                                  "amountLimit": 200,
+                                  "periodType": "MONTHLY",
+                                  "startDate": "2026-04-01",
+                                  "endDate": "2026-04-30"
+                                }
+                                """.formatted(rentCategory.getId())))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.categoryName").value("Rent"))
+                .andExpect(jsonPath("$.data.dailyRecommendedAmount").isEmpty())
+                .andExpect(jsonPath("$.data.weeklyRecommendedAmount").isEmpty());
+
+        mockMvc.perform(post("/api/budgets")
+                        .header(HttpHeaders.AUTHORIZATION, bearer(userToken))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "categoryId": %d,
+                                  "estimatedMonthlyIncome": 1000,
+                                  "percentage": 10,
+                                  "periodType": "MONTHLY",
+                                  "startDate": "2026-04-01",
+                                  "endDate": "2026-04-30"
+                                }
+                                """.formatted(funCategory.getId())))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.allocationType").value("CATEGORY"))
+                .andExpect(jsonPath("$.data.categoryName").value("Fun"))
+                .andExpect(jsonPath("$.data.amountLimit").value(100))
+                .andExpect(jsonPath("$.data.percentage").value(10))
+                .andExpect(jsonPath("$.data.dailyRecommendedAmount").isEmpty())
+                .andExpect(jsonPath("$.data.weeklyRecommendedAmount").isEmpty());
+
+        mockMvc.perform(get("/api/budgets")
+                        .header(HttpHeaders.AUTHORIZATION, bearer(userToken)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.length()").value(5));
+
+        mockMvc.perform(post("/api/transactions")
+                        .header(HttpHeaders.AUTHORIZATION, bearer(userToken))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "categoryId": %d,
+                                  "amount": 30,
+                                  "type": "EXPENSE",
+                                  "description": "Food purchase",
+                                  "transactionDate": "2026-04-10"
+                                }
+                                """.formatted(foodCategory.getId())))
+                .andExpect(status().isOk());
+
+        mockMvc.perform(get("/api/alerts")
+                        .header(HttpHeaders.AUTHORIZATION, bearer(userToken)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.length()").value(2))
+                .andExpect(jsonPath("$.data[0].message").value(org.hamcrest.Matchers.containsString("daily spending limit")));
     }
 
     @Test
@@ -482,7 +656,7 @@ class ApiEndpointIntegrationTests {
     }
 
     @Test
-    void adminEndpoints_shouldCoverCategoryManagementAnalyticsAndMonitoring() throws Exception {
+    void adminEndpoints_shouldCoverCategoryManagementAndMonitoring() throws Exception {
         User admin = seedVerifiedUser("admin", "admin@moneymap.com", "Admin@123456", Role.ADMIN);
         User normalUser = seedVerifiedUser("jane", "jane@example.com", "Password123", Role.USER);
         Category foodCategory = seedCategory("Food", TransactionType.EXPENSE);
@@ -542,7 +716,7 @@ class ApiEndpointIntegrationTests {
 
         String adminToken = loginAndGetAccessToken("admin@moneymap.com", "Admin@123456");
 
-        mockMvc.perform(post("/api/categories")
+        mockMvc.perform(post("/api/admin/categories")
                         .header(HttpHeaders.AUTHORIZATION, bearer(adminToken))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
@@ -552,12 +726,30 @@ class ApiEndpointIntegrationTests {
                                 }
                                 """))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.success").value(true));
+                .andExpect(jsonPath("$.success").value(true))
+                .andExpect(jsonPath("$.data.name").value("Transport"))
+                .andExpect(jsonPath("$.data.isDefault").value(true))
+                .andExpect(jsonPath("$.data.userId").isEmpty());
+
+        Category transportCategory = categoryRepository.findDefaultByNameIgnoreCase("Transport")
+                .orElseThrow();
 
         mockMvc.perform(get("/api/categories")
                         .header(HttpHeaders.AUTHORIZATION, bearer(adminToken)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.length()").value(3));
+
+        mockMvc.perform(post("/api/categories")
+                        .header(HttpHeaders.AUTHORIZATION, bearer(adminToken))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "name": "Should Fail",
+                                  "type": "EXPENSE"
+                                }
+                                """))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.message").value("Admins must use the admin category endpoint"));
 
         mockMvc.perform(post("/api/categories")
                         .header(HttpHeaders.AUTHORIZATION, bearer(userToken))
@@ -583,7 +775,7 @@ class ApiEndpointIntegrationTests {
                 .andExpect(jsonPath("$.data.totalUsers").value(2))
                 .andExpect(jsonPath("$.data.totalTransactions").value(3))
                 .andExpect(jsonPath("$.data.totalBudgets").value(1))
-                .andExpect(jsonPath("$.data.totalAlerts").value(6))
+                .andExpect(jsonPath("$.data.totalAlerts").value(11))
                 .andExpect(jsonPath("$.data.mostSpentCategory").value("Food"));
 
         mockMvc.perform(get("/api/admin/users")
@@ -596,31 +788,30 @@ class ApiEndpointIntegrationTests {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.email").value("jane@example.com"));
 
+        mockMvc.perform(get("/api/admin/categories")
+                        .header(HttpHeaders.AUTHORIZATION, bearer(adminToken)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.length()").value(3));
+
         mockMvc.perform(patch("/api/admin/users/{id}/deactivate", normalUser.getId())
                         .header(HttpHeaders.AUTHORIZATION, bearer(adminToken)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.enabled").value(false));
 
-        mockMvc.perform(get("/api/admin/transactions")
+        mockMvc.perform(patch("/api/admin/users/{id}/reactivate", normalUser.getId())
                         .header(HttpHeaders.AUTHORIZATION, bearer(adminToken)))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.data[0].userId").value(normalUser.getId()))
-                .andExpect(jsonPath("$.data[0].userEmail").value("jane@example.com"))
-                .andExpect(jsonPath("$.data[0].categoryId").value(foodCategory.getId()))
-                .andExpect(jsonPath("$.data[0].categoryName").value("Food"))
-                .andExpect(jsonPath("$.data[0].totalSpending").value(300))
-                .andExpect(jsonPath("$.data[0].transactionCount").value(2))
-                .andExpect(jsonPath("$.data[0].description").doesNotExist())
-                .andExpect(jsonPath("$.data[0].amount").doesNotExist());
+                .andExpect(jsonPath("$.data.enabled").value(true));
 
-        mockMvc.perform(get("/api/admin/transactions")
-                        .param("userId", normalUser.getId().toString())
-                        .param("categoryId", foodCategory.getId().toString())
+        mockMvc.perform(delete("/api/admin/categories/{id}", transportCategory.getId())
                         .header(HttpHeaders.AUTHORIZATION, bearer(adminToken)))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.data.length()").value(1))
-                .andExpect(jsonPath("$.data[0].totalSpending").value(300))
-                .andExpect(jsonPath("$.data[0].transactionCount").value(2));
+                .andExpect(jsonPath("$.success").value(true));
+
+        mockMvc.perform(get("/api/admin/categories")
+                        .header(HttpHeaders.AUTHORIZATION, bearer(adminToken)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.length()").value(2));
 
         mockMvc.perform(get("/api/admin/alerts")
                         .header(HttpHeaders.AUTHORIZATION, bearer(adminToken)))
@@ -686,9 +877,24 @@ class ApiEndpointIntegrationTests {
     }
 
     private Category seedCategory(String name, TransactionType type) {
+        return seedCategory(name, type, null, null);
+    }
+
+    private Category seedCategory(String name, TransactionType type, CategoryGroupType groupType) {
+        return seedCategory(name, type, groupType, null);
+    }
+
+    private Category seedCategory(
+            String name,
+            TransactionType type,
+            CategoryGroupType groupType,
+            CategorySpendingType spendingType
+    ) {
         return categoryRepository.save(Category.builder()
                 .name(name)
                 .type(type)
+                .groupType(groupType)
+                .spendingType(spendingType)
                 .build());
     }
 
