@@ -36,6 +36,5 @@ build/
 src/main/resources/application-dev.properties
 
 .DS_Store
-postman
 .env
 .env.example
