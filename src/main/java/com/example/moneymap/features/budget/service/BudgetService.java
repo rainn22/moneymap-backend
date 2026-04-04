@@ -7,13 +7,11 @@ import com.example.moneymap.features.budget.dto.BudgetAllocationRequest;
 import com.example.moneymap.features.budget.dto.CreateBudgetRequest;
 import com.example.moneymap.features.budget.dto.BudgetSetupRequest;
 import com.example.moneymap.features.budget.dto.BudgetSetupResponse;
-import com.example.moneymap.features.budget.dto.BudgetSplitSuggestionResponse;
 import com.example.moneymap.features.budget.entity.BudgetAllocationType;
 import com.example.moneymap.features.budget.entity.Budget;
 import com.example.moneymap.features.budget.entity.BudgetPeriodType;
 import com.example.moneymap.features.budget.repository.BudgetRepository;
 import com.example.moneymap.features.category.entity.Category;
-import com.example.moneymap.features.category.entity.CategoryGroupType;
 import com.example.moneymap.features.category.entity.CategorySpendingType;
 import com.example.moneymap.features.category.service.CategoryService;
 import com.example.moneymap.features.saving.entity.SavingGoal;
@@ -43,9 +41,6 @@ public class BudgetService {
     private final TransactionRepository transactionRepository;
 
     private static final BigDecimal ONE_HUNDRED = BigDecimal.valueOf(100);
-    private static final BigDecimal DEFAULT_NEEDS_PERCENT = BigDecimal.valueOf(50);
-    private static final BigDecimal DEFAULT_WANTS_PERCENT = BigDecimal.valueOf(30);
-    private static final BigDecimal DEFAULT_SAVINGS_PERCENT = BigDecimal.valueOf(20);
 
     @Transactional
     public BudgetResponse createBudget(CreateBudgetRequest request) {
@@ -54,33 +49,6 @@ public class BudgetService {
         validateDateRange(input.periodType(), input.startDate(), input.endDate());
         Budget budget = upsertBudget(user, input);
         return mapToResponse(budgetRepository.save(budget));
-    }
-
-    @Transactional(readOnly = true)
-    public BudgetSplitSuggestionResponse suggestBudgetSetup(BudgetSetupRequest request) {
-        User user = currentUserService.getCurrentUser();
-        validateDateRange(request.getPeriodType(), request.getStartDate(), request.getEndDate());
-        List<BudgetInput> inputs = normalizeSetupAllocations(user, request);
-        BudgetPlanSummary summary = summarizePlan(
-                request.getEstimatedMonthlyIncome(),
-                inputs,
-                request.getStartDate(),
-                request.getEndDate()
-        );
-        List<BudgetResponse> budgetResponses = inputs.stream()
-                .map(input -> mapToResponse(input, inputs))
-                .toList();
-        return BudgetSplitSuggestionResponse.builder()
-                .estimatedMonthlyIncome(request.getEstimatedMonthlyIncome())
-                .ruleMode(isRuleMode(request))
-                .totalAllocatedAmount(sumAmounts(inputs))
-                .totalPercentage(sumPercentages(inputs))
-                .fixedTotal(summary.fixedTotal())
-                .savingsTotal(summary.savingsTotal())
-                .remainingAmount(summary.remainingAmount())
-                .dailyBudget(summary.dailyBudget())
-                .budgets(budgetResponses)
-                .build();
     }
 
     @Transactional
@@ -116,7 +84,6 @@ public class BudgetService {
 
         return BudgetSetupResponse.builder()
                 .estimatedMonthlyIncome(request.getEstimatedMonthlyIncome())
-                .ruleMode(isRuleMode(request))
                 .totalAllocatedAmount(sumAmounts(inputs))
                 .totalPercentage(sumPercentages(inputs))
                 .fixedTotal(summary.fixedTotal())
@@ -169,7 +136,6 @@ public class BudgetService {
                 .allocationType(budget.getAllocationType())
                 .categoryId(budget.getCategory() == null ? null : budget.getCategory().getId())
                 .categoryName(budget.getCategory() == null ? null : budget.getCategory().getName())
-                .groupType(budget.getGroupType())
                 .savingGoalId(budget.getSavingGoal() == null ? null : budget.getSavingGoal().getId())
                 .savingGoalTitle(budget.getSavingGoal() == null ? null : budget.getSavingGoal().getTitle())
                 .periodType(budget.getPeriodType())
@@ -192,7 +158,6 @@ public class BudgetService {
                 .allocationType(input.allocationType())
                 .categoryId(input.category() == null ? null : input.category().getId())
                 .categoryName(input.category() == null ? null : input.category().getName())
-                .groupType(input.groupType())
                 .savingGoalId(input.savingGoal() == null ? null : input.savingGoal().getId())
                 .savingGoalTitle(input.savingGoal() == null ? null : input.savingGoal().getTitle())
                 .periodType(input.periodType())
@@ -211,7 +176,6 @@ public class BudgetService {
         Long budgetSavingGoalId = budget.getSavingGoal() == null ? null : budget.getSavingGoal().getId();
         Long inputSavingGoalId = input.savingGoal() == null ? null : input.savingGoal().getId();
         return java.util.Objects.equals(budgetCategoryId, inputCategoryId)
-                && budget.getGroupType() == input.groupType()
                 && java.util.Objects.equals(budgetSavingGoalId, inputSavingGoalId);
     }
 
@@ -219,12 +183,11 @@ public class BudgetService {
         BudgetAllocationType allocationType = resolveAllocationType(
                 request.getAllocationType(),
                 request.getCategoryId(),
-                request.getGroupType(),
                 request.getSavingGoalId()
         );
         Category category = resolveBudgetCategory(request.getCategoryId(), allocationType);
         SavingGoal savingGoal = resolveSavingGoal(user, request.getSavingGoalId(), allocationType);
-        validateAllocationTarget(allocationType, category, request.getGroupType(), savingGoal);
+        validateAllocationTarget(allocationType, category, savingGoal);
 
         AmountAndPercentage normalized = normalizeAmountAndPercentage(
                 request.getEstimatedMonthlyIncome(),
@@ -235,7 +198,6 @@ public class BudgetService {
         return new BudgetInput(
                 allocationType,
                 category,
-                request.getGroupType(),
                 savingGoal,
                 request.getPeriodType(),
                 normalized.amountLimit(),
@@ -248,13 +210,7 @@ public class BudgetService {
     private List<BudgetInput> normalizeSetupAllocations(User user, BudgetSetupRequest request) {
         List<BudgetAllocationRequest> rawAllocations = request.getAllocations();
         if (rawAllocations == null || rawAllocations.isEmpty()) {
-            rawAllocations = isRuleMode(request)
-                    ? List.of(
-                            buildDefaultAllocation(CategoryGroupType.NEEDS, DEFAULT_NEEDS_PERCENT),
-                            buildDefaultAllocation(CategoryGroupType.WANTS, DEFAULT_WANTS_PERCENT),
-                            buildSavingsAllocation(DEFAULT_SAVINGS_PERCENT)
-                    )
-                    : List.of();
+            throw new RuntimeException("At least one manual allocation is required");
         }
 
         List<BudgetInput> inputs = rawAllocations.stream()
@@ -272,12 +228,11 @@ public class BudgetService {
         BudgetAllocationType allocationType = resolveAllocationType(
                 allocation.getAllocationType(),
                 allocation.getCategoryId(),
-                allocation.getGroupType(),
                 allocation.getSavingGoalId()
         );
         Category category = resolveBudgetCategory(allocation.getCategoryId(), allocationType);
         SavingGoal savingGoal = resolveSavingGoal(user, allocation.getSavingGoalId(), allocationType);
-        validateAllocationTarget(allocationType, category, allocation.getGroupType(), savingGoal);
+        validateAllocationTarget(allocationType, category, savingGoal);
 
         AmountAndPercentage normalized = normalizeAmountAndPercentage(
                 request.getEstimatedMonthlyIncome(),
@@ -288,7 +243,6 @@ public class BudgetService {
         return new BudgetInput(
                 allocationType,
                 category,
-                allocation.getGroupType(),
                 savingGoal,
                 request.getPeriodType(),
                 normalized.amountLimit(),
@@ -301,21 +255,17 @@ public class BudgetService {
     private BudgetAllocationType resolveAllocationType(
             BudgetAllocationType requestedAllocationType,
             Long categoryId,
-            CategoryGroupType groupType,
             Long savingGoalId
     ) {
-        int selectedTargets = (categoryId != null ? 1 : 0) + (groupType != null ? 1 : 0) + (savingGoalId != null ? 1 : 0);
+        int selectedTargets = (categoryId != null ? 1 : 0) + (savingGoalId != null ? 1 : 0);
         if (selectedTargets > 1) {
-            throw new RuntimeException("Each budget allocation must target only one of category, group, or saving goal");
+            throw new RuntimeException("Each budget allocation must target only one of category or saving goal");
         }
         if (requestedAllocationType != null) {
             return requestedAllocationType;
         }
         if (savingGoalId != null) {
             return BudgetAllocationType.SAVINGS;
-        }
-        if (groupType != null) {
-            return BudgetAllocationType.GROUP;
         }
         return BudgetAllocationType.CATEGORY;
     }
@@ -348,23 +298,13 @@ public class BudgetService {
     private void validateAllocationTarget(
             BudgetAllocationType allocationType,
             Category category,
-            CategoryGroupType groupType,
             SavingGoal savingGoal
     ) {
-        if (allocationType == BudgetAllocationType.GROUP && groupType == null) {
-            throw new RuntimeException("Group budget requires a group type");
-        }
-        if (allocationType == BudgetAllocationType.CATEGORY && groupType != null) {
-            throw new RuntimeException("Category budget cannot use a group type");
-        }
         if (allocationType == BudgetAllocationType.CATEGORY && savingGoal != null) {
             throw new RuntimeException("Category budget cannot use a saving goal");
         }
-        if (allocationType == BudgetAllocationType.GROUP && (category != null || savingGoal != null)) {
-            throw new RuntimeException("Group budget cannot target a category or saving goal");
-        }
-        if (allocationType == BudgetAllocationType.SAVINGS && (category != null || groupType != null)) {
-            throw new RuntimeException("Savings budget cannot target a category or group");
+        if (allocationType == BudgetAllocationType.SAVINGS && category != null) {
+            throw new RuntimeException("Savings budget cannot target a category");
         }
     }
 
@@ -420,14 +360,12 @@ public class BudgetService {
                         input.endDate(),
                         input.allocationType(),
                         input.category() == null ? null : input.category().getId(),
-                        input.groupType(),
                         input.savingGoal() == null ? null : input.savingGoal().getId())
                 .orElseGet(Budget::new);
 
         budget.setUser(user);
         budget.setAllocationType(input.allocationType());
         budget.setCategory(input.category());
-        budget.setGroupType(input.groupType());
         budget.setSavingGoal(input.savingGoal());
         budget.setPeriodType(input.periodType());
         budget.setAmountLimit(scaleAmount(input.amountLimit()));
@@ -435,21 +373,6 @@ public class BudgetService {
         budget.setStartDate(input.startDate());
         budget.setEndDate(input.endDate());
         return budget;
-    }
-
-    private BudgetAllocationRequest buildDefaultAllocation(CategoryGroupType groupType, BigDecimal percentage) {
-        BudgetAllocationRequest allocation = new BudgetAllocationRequest();
-        allocation.setAllocationType(BudgetAllocationType.GROUP);
-        allocation.setGroupType(groupType);
-        allocation.setPercentage(percentage);
-        return allocation;
-    }
-
-    private BudgetAllocationRequest buildSavingsAllocation(BigDecimal percentage) {
-        BudgetAllocationRequest allocation = new BudgetAllocationRequest();
-        allocation.setAllocationType(BudgetAllocationType.SAVINGS);
-        allocation.setPercentage(percentage);
-        return allocation;
     }
 
     private BigDecimal scaleAmount(BigDecimal amount) {
@@ -549,9 +472,6 @@ public class BudgetService {
         if (budget.getPeriodType() != BudgetPeriodType.MONTHLY || budget.getAllocationType() == BudgetAllocationType.SAVINGS) {
             return false;
         }
-        if (budget.getAllocationType() == BudgetAllocationType.GROUP) {
-            return true;
-        }
         return budget.getCategory() != null && budget.getCategory().getSpendingType() == CategorySpendingType.VARIABLE;
     }
 
@@ -559,24 +479,12 @@ public class BudgetService {
         if (input.periodType() != BudgetPeriodType.MONTHLY || input.allocationType() == BudgetAllocationType.SAVINGS) {
             return false;
         }
-        if (input.allocationType() == BudgetAllocationType.GROUP) {
-            return true;
-        }
         return input.category() != null && input.category().getSpendingType() == CategorySpendingType.VARIABLE;
     }
 
     private BigDecimal sumTrackedSpend(User user, DailyTrackingSelection selection, LocalDate startDate, LocalDate endDate) {
         if (endDate.isBefore(startDate)) {
             return BigDecimal.ZERO;
-        }
-        if (selection.usesGroupBudgets()) {
-            return transactionRepository.sumExpenseForBudgetPeriodByGroupTypesAndSpendingType(
-                    user,
-                    selection.groupTypes(),
-                    CategorySpendingType.VARIABLE,
-                    startDate,
-                    endDate
-            );
         }
         if (!selection.categoryIds().isEmpty()) {
             return transactionRepository.sumExpenseForBudgetPeriodByCategoryIds(
@@ -590,23 +498,6 @@ public class BudgetService {
     }
 
     private DailyTrackingSelection resolveDailyTrackingSelection(List<Budget> budgets) {
-        List<Budget> groupBudgets = budgets.stream()
-                .filter(this::supportsDerivedTracking)
-                .filter(budget -> budget.getAllocationType() == BudgetAllocationType.GROUP)
-                .toList();
-        if (!groupBudgets.isEmpty()) {
-            return new DailyTrackingSelection(
-                    groupBudgets,
-                    groupBudgets.stream()
-                            .map(Budget::getAmountLimit)
-                            .reduce(BigDecimal.ZERO, BigDecimal::add)
-                            .setScale(2, RoundingMode.HALF_UP),
-                    true,
-                    groupBudgets.stream().map(Budget::getGroupType).collect(java.util.stream.Collectors.toSet()),
-                    Set.of()
-            );
-        }
-
         List<Budget> variableCategoryBudgets = budgets.stream()
                 .filter(this::supportsDerivedTracking)
                 .filter(budget -> budget.getAllocationType() == BudgetAllocationType.CATEGORY)
@@ -617,8 +508,6 @@ public class BudgetService {
                         .map(Budget::getAmountLimit)
                         .reduce(BigDecimal.ZERO, BigDecimal::add)
                         .setScale(2, RoundingMode.HALF_UP),
-                false,
-                Set.of(),
                 variableCategoryBudgets.stream()
                         .map(budget -> budget.getCategory().getId())
                         .collect(java.util.stream.Collectors.toSet())
@@ -626,20 +515,6 @@ public class BudgetService {
     }
 
     private DailyTrackingInputSelection resolveDailyTrackingInputSelection(List<BudgetInput> inputs) {
-        List<BudgetInput> groupInputs = inputs.stream()
-                .filter(this::supportsDerivedTracking)
-                .filter(input -> input.allocationType() == BudgetAllocationType.GROUP)
-                .toList();
-        if (!groupInputs.isEmpty()) {
-            return new DailyTrackingInputSelection(
-                    groupInputs,
-                    groupInputs.stream()
-                            .map(BudgetInput::amountLimit)
-                            .reduce(BigDecimal.ZERO, BigDecimal::add)
-                            .setScale(2, RoundingMode.HALF_UP)
-            );
-        }
-
         List<BudgetInput> variableCategoryInputs = inputs.stream()
                 .filter(this::supportsDerivedTracking)
                 .filter(input -> input.allocationType() == BudgetAllocationType.CATEGORY)
@@ -651,10 +526,6 @@ public class BudgetService {
                         .reduce(BigDecimal.ZERO, BigDecimal::add)
                         .setScale(2, RoundingMode.HALF_UP)
         );
-    }
-
-    private boolean isRuleMode(BudgetSetupRequest request) {
-        return request.getRuleMode() == null ? true : request.getRuleMode();
     }
 
     private BudgetPlanSummary summarizePlan(
@@ -701,8 +572,6 @@ public class BudgetService {
     private record DailyTrackingSelection(
             List<Budget> budgets,
             BigDecimal totalAmountLimit,
-            boolean usesGroupBudgets,
-            Set<CategoryGroupType> groupTypes,
             Set<Long> categoryIds
     ) {
         private boolean includes(Budget budget) {
@@ -730,7 +599,6 @@ public class BudgetService {
     private record BudgetInput(
             BudgetAllocationType allocationType,
             Category category,
-            CategoryGroupType groupType,
             SavingGoal savingGoal,
             BudgetPeriodType periodType,
             BigDecimal amountLimit,

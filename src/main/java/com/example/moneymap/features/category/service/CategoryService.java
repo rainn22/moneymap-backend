@@ -41,13 +41,13 @@ public class CategoryService {
             throw new RuntimeException("Category name already exists");
         }
 
-        CategoryGroupType resolvedRuleType = resolveRuleType(request);
-        validateCategoryAttributes(request.getType(), resolvedRuleType, request.getSpendingType());
+        CategoryGroupType resolvedGroupType = resolveGroupType(request);
+        validateCategoryAttributes(request.getType(), resolvedGroupType, request.getSpendingType());
 
         Category category = Category.builder()
                 .name(normalizedName)
                 .type(request.getType())
-                .groupType(resolvedRuleType)
+                .groupType(resolvedGroupType)
                 .spendingType(resolveSpendingType(request.getType(), request.getSpendingType()))
                 .user(user)
                 .build();
@@ -68,13 +68,13 @@ public class CategoryService {
             throw new RuntimeException("Category name already exists");
         }
 
-        CategoryGroupType resolvedRuleType = resolveRuleType(request);
-        validateCategoryAttributes(request.getType(), resolvedRuleType, request.getSpendingType());
+        CategoryGroupType resolvedGroupType = resolveGroupType(request);
+        validateCategoryAttributes(request.getType(), resolvedGroupType, request.getSpendingType());
 
         Category category = Category.builder()
                 .name(normalizedName)
                 .type(request.getType())
-                .groupType(resolvedRuleType)
+                .groupType(resolvedGroupType)
                 .spendingType(resolveSpendingType(request.getType(), request.getSpendingType()))
                 .user(null)
                 .build();
@@ -224,8 +224,16 @@ public class CategoryService {
             CategoryGroupType groupType,
             CategorySpendingType spendingType
     ) {
-        if ((groupType != null || spendingType != null) && type != TransactionType.EXPENSE) {
+        if (type == TransactionType.INCOME && (groupType != null || spendingType != null)) {
             throw new RuntimeException("Category group type and spending type are only supported for expense categories");
+        }
+        if (type == TransactionType.SAVING) {
+            if (groupType != null && groupType != CategoryGroupType.SAVING) {
+                throw new RuntimeException("Saving categories must use SAVING as group type");
+            }
+            if (spendingType != null) {
+                throw new RuntimeException("Saving categories do not support spending type");
+            }
         }
     }
 
@@ -236,7 +244,7 @@ public class CategoryService {
         return spendingType == null ? CategorySpendingType.VARIABLE : spendingType;
     }
 
-    private CategoryGroupType resolveRuleType(CreateCategoryRequest request) {
+    private CategoryGroupType resolveGroupType(CreateCategoryRequest request) {
         return request.getGroupType();
     }
 
@@ -258,12 +266,12 @@ public class CategoryService {
     }
 
     private Category updateCategoryEntity(Category category, CreateCategoryRequest request, String normalizedName) {
-        CategoryGroupType resolvedRuleType = resolveRuleType(request);
-        validateCategoryAttributes(request.getType(), resolvedRuleType, request.getSpendingType());
+        CategoryGroupType resolvedGroupType = resolveGroupType(request);
+        validateCategoryAttributes(request.getType(), resolvedGroupType, request.getSpendingType());
 
         category.setName(normalizedName);
         category.setType(request.getType());
-        category.setGroupType(resolvedRuleType);
+        category.setGroupType(resolvedGroupType);
         category.setSpendingType(resolveSpendingType(request.getType(), request.getSpendingType()));
         return categoryRepository.save(category);
     }

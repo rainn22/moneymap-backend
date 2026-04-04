@@ -24,8 +24,6 @@ public class BudgetSetupRequest {
     @NotNull(message = "End date is required")
     private LocalDate endDate;
 
-    private Boolean ruleMode;
-
     @Valid
     private List<BudgetAllocationRequest> allocations;
 }

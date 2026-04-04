@@ -40,6 +40,10 @@ public class SchemaCompatibilityConfig {
                 "WHERE allocation_type IS NULL"
         );
         jdbcTemplate.execute(
+            "UPDATE budgets SET allocation_type = 'CATEGORY' " +
+                "WHERE allocation_type = 'GROUP'"
+        );
+        jdbcTemplate.execute(
             "ALTER TABLE budgets " +
                 "ALTER COLUMN allocation_type SET NOT NULL"
         );
@@ -61,6 +65,14 @@ public class SchemaCompatibilityConfig {
         jdbcTemplate.execute(
             "UPDATE categories SET spending_type = 'VARIABLE' " +
                 "WHERE spending_type IS NULL AND type = 'EXPENSE'"
+        );
+        jdbcTemplate.execute(
+            "ALTER TABLE categories " +
+                "DROP CONSTRAINT IF EXISTS categories_type_check"
+        );
+        jdbcTemplate.execute(
+            "ALTER TABLE categories " +
+                "ADD CONSTRAINT categories_type_check CHECK (type IN ('INCOME', 'EXPENSE', 'SAVING'))"
         );
     }
 

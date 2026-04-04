@@ -20,6 +20,8 @@ public interface TransactionRepository extends JpaRepository<Transaction, Long> 
 
     List<Transaction> findByUserOrderByTransactionDateDescCreatedAtDesc(User user);
 
+    List<Transaction> findBySavingGoalId(Long savingGoalId);
+
     @Query(value = """
             select t
             from Transaction t

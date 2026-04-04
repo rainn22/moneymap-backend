@@ -9,7 +9,6 @@ import lombok.Data;
 @Builder
 public class BudgetSetupResponse {
     private BigDecimal estimatedMonthlyIncome;
-    private boolean ruleMode;
     private BigDecimal totalAllocatedAmount;
     private BigDecimal totalPercentage;
     private BigDecimal fixedTotal;

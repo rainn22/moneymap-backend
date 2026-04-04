@@ -22,7 +22,6 @@ public interface BudgetRepository extends JpaRepository<Budget, Long> {
               and b.endDate = :endDate
               and b.allocationType = :allocationType
               and ((:categoryId is null and b.category is null) or b.category.id = :categoryId)
-              and ((:groupType is null and b.groupType is null) or b.groupType = :groupType)
               and ((:savingGoalId is null and b.savingGoal is null) or b.savingGoal.id = :savingGoalId)
             """)
     Optional<Budget> findMatchingBudget(
@@ -32,7 +31,6 @@ public interface BudgetRepository extends JpaRepository<Budget, Long> {
             @Param("endDate") LocalDate endDate,
             @Param("allocationType") com.example.moneymap.features.budget.entity.BudgetAllocationType allocationType,
             @Param("categoryId") Long categoryId,
-            @Param("groupType") com.example.moneymap.features.category.entity.CategoryGroupType groupType,
             @Param("savingGoalId") Long savingGoalId
     );
 

@@ -1,7 +1,6 @@
 package com.example.moneymap.features.budget.entity;
 
 import com.example.moneymap.features.category.entity.Category;
-import com.example.moneymap.features.category.entity.CategoryGroupType;
 import com.example.moneymap.features.saving.entity.SavingGoal;
 import com.example.moneymap.features.user.entity.User;
 import jakarta.persistence.Column;
@@ -50,10 +49,6 @@ public class Budget {
     @Enumerated(EnumType.STRING)
     @Column(nullable = false)
     private BudgetAllocationType allocationType;
-
-    @Enumerated(EnumType.STRING)
-    @Column(name = "group_type")
-    private CategoryGroupType groupType;
 
     @Enumerated(EnumType.STRING)
     @Column(nullable = false)

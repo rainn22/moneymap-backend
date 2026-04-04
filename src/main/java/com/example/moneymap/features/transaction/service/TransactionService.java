@@ -212,8 +212,8 @@ public class TransactionService {
             if (savingGoal == null) {
                 throw new RuntimeException("Saving goal is required for saving transactions");
             }
-            if (category != null) {
-                throw new RuntimeException("Category is not allowed for saving transactions");
+            if (category != null && category.getType() != TransactionType.SAVING) {
+                throw new RuntimeException("Saving transactions can only use saving categories");
             }
             return;
         }

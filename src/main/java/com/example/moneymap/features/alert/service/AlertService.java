@@ -221,16 +221,10 @@ public class AlertService {
         if (budget.getPeriodType() != BudgetPeriodType.MONTHLY || budget.getAllocationType() == BudgetAllocationType.SAVINGS) {
             return false;
         }
-        if (budget.getAllocationType() == BudgetAllocationType.GROUP) {
-            return true;
-        }
         return budget.getCategory() != null && budget.getCategory().getSpendingType() == CategorySpendingType.VARIABLE;
     }
 
     private boolean matchesAllocation(Budget budget, Long categoryId, CategoryGroupType groupType) {
-        if (budget.getAllocationType() == BudgetAllocationType.GROUP) {
-            return budget.getGroupType() == groupType;
-        }
         if (budget.getCategory() == null) {
             return true;
         }
@@ -311,9 +305,6 @@ public class AlertService {
     }
 
     private String resolveBudgetLabel(Budget budget) {
-        if (budget.getAllocationType() == BudgetAllocationType.GROUP && budget.getGroupType() != null) {
-            return budget.getGroupType().name().toLowerCase();
-        }
         if (budget.getAllocationType() == BudgetAllocationType.SAVINGS) {
             return budget.getSavingGoal() == null ? "savings" : budget.getSavingGoal().getTitle();
         }
@@ -333,14 +324,6 @@ public class AlertService {
     }
 
     private BigDecimal sumMonthlySpentAmount(Budget budget, LocalDate startDate, LocalDate endDate) {
-        if (budget.getAllocationType() == BudgetAllocationType.GROUP) {
-            return transactionRepository.sumExpenseForBudgetPeriodByGroupType(
-                    budget.getUser(),
-                    budget.getGroupType(),
-                    startDate,
-                    endDate
-            );
-        }
         return transactionRepository.sumExpenseForBudgetPeriod(
                 budget.getUser(),
                 budget.getCategory() == null ? null : budget.getCategory().getId(),
@@ -356,15 +339,6 @@ public class AlertService {
     private BigDecimal sumDailyTrackingSpent(User user, DailyTrackingSelection selection, LocalDate startDate, LocalDate endDate) {
         if (endDate.isBefore(startDate)) {
             return BigDecimal.ZERO;
-        }
-        if (selection.usesGroupBudgets()) {
-            return transactionRepository.sumExpenseForBudgetPeriodByGroupTypesAndSpendingType(
-                    user,
-                    selection.groupTypes(),
-                    CategorySpendingType.VARIABLE,
-                    startDate,
-                    endDate
-            );
         }
         if (!selection.categoryIds().isEmpty()) {
             return transactionRepository.sumExpenseForBudgetPeriodByCategoryIds(
@@ -391,25 +365,6 @@ public class AlertService {
     }
 
     private DailyTrackingSelection resolveDailyTrackingSelection(List<Budget> budgets) {
-        List<Budget> groupBudgets = budgets.stream()
-                .filter(this::supportsDailyVariableTracking)
-                .filter(budget -> budget.getAllocationType() == BudgetAllocationType.GROUP)
-                .toList();
-        if (!groupBudgets.isEmpty()) {
-            Budget anchorBudget = groupBudgets.get(0);
-            return new DailyTrackingSelection(
-                    groupBudgets,
-                    anchorBudget,
-                    groupBudgets.stream()
-                            .map(Budget::getAmountLimit)
-                            .reduce(BigDecimal.ZERO, BigDecimal::add)
-                            .setScale(2, RoundingMode.HALF_UP),
-                    true,
-                    groupBudgets.stream().map(Budget::getGroupType).collect(java.util.stream.Collectors.toSet()),
-                    Set.of()
-            );
-        }
-
         List<Budget> variableCategoryBudgets = budgets.stream()
                 .filter(this::supportsDailyVariableTracking)
                 .filter(budget -> budget.getAllocationType() == BudgetAllocationType.CATEGORY)
@@ -422,8 +377,6 @@ public class AlertService {
                         .map(Budget::getAmountLimit)
                         .reduce(BigDecimal.ZERO, BigDecimal::add)
                         .setScale(2, RoundingMode.HALF_UP),
-                false,
-                Set.of(),
                 variableCategoryBudgets.stream()
                         .map(budget -> budget.getCategory().getId())
                         .collect(java.util.stream.Collectors.toSet())
@@ -443,8 +396,6 @@ public class AlertService {
             List<Budget> trackedBudgets,
             Budget anchorBudget,
             BigDecimal totalAmountLimit,
-            boolean usesGroupBudgets,
-            Set<CategoryGroupType> groupTypes,
             Set<Long> categoryIds
     ) {
     }

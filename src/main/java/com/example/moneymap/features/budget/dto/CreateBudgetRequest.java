@@ -1,6 +1,5 @@
 package com.example.moneymap.features.budget.dto;
 
-import com.example.moneymap.features.category.entity.CategoryGroupType;
 import com.example.moneymap.features.budget.entity.BudgetAllocationType;
 import com.example.moneymap.features.budget.entity.BudgetPeriodType;
 import jakarta.validation.constraints.DecimalMax;
@@ -13,7 +12,6 @@ import lombok.Data;
 public class CreateBudgetRequest {
     private BudgetAllocationType allocationType;
     private Long categoryId;
-    private CategoryGroupType groupType;
     private Long savingGoalId;
 
     @DecimalMin(value = "0.01", message = "Estimated monthly income must be greater than zero")
